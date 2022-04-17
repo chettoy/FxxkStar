@@ -34,6 +34,8 @@
 
 - [x] Synchronize video playback progress
 
+- [x] Quick view of after-class questions
+
 - [ ] Interactive question answering (not implemented)
 
 - [ ] Check-in reminders and message reminders (not implemented)
@@ -43,7 +45,7 @@
 ## Prerequisites
 
 - `python3`
-- `lxml`, `beautifulsoup4`
+- `lxml`, `beautifulsoup4`, `requests`
 
 
 

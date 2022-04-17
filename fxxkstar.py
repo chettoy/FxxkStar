@@ -33,6 +33,11 @@ G_CONFIG = {
     # If set to False, data will load from cache
     'always_request_course_list': False,
     'always_request_course_info': True,
+
+    'save_paper_to_file': False,
+
+    # enable test mode
+    'test': False,
 }
 
 
@@ -647,6 +652,8 @@ class FxxkStarHelper():
         if self.fxxkstar.uid == -1:
             self.start_interactive_login(self.fxxkstar)
             time.sleep(2)
+            # force reload course list after login
+            G_CONFIG["always_request_course_list"] = True
         return self.fxxkstar.uid
 
     def load_courses_if_need(self) -> dict:
@@ -716,20 +723,33 @@ class FxxkStarHelper():
             elif attachment_type == "workid":
                 mod = WorkModule(self.fxxkstar, attachment_item=attachment_item, card_args=card_args,
                                  course_id=course_id, clazz_id=clazz_id, chapter_id=chapter_id)
-
-                with open(f"temp/work/work_{mod.work_id}.html", "w") as f:
-                    f.write(mod.load())
-                print("[Work] ", mod.title, mod.work_id, " saved")
+                mod.load()
+                if G_CONFIG["save_paper_to_file"]:
+                    with open(f"temp/work/work_{mod.work_id}.html", "w") as f:
+                        f.write(mod.paper_html)
+                    print("[Work] ", mod.title, mod.work_id, " saved")
 
                 if not mod.is_approved:
                     questions = mod.parse_paper(mod.paper_html)
-                    # mod.correct_answers(questions, mod.work_id, card_url)
+                    #mod.correct_answers(questions, mod.work_id, card_url)
                     if G_VERBOSE:
                         print(questions)
-                    # mod.upload_answers(questions)
+                    mod.review_questions(questions)
+                    time.sleep(random.randint(1000, 5000) / 1000)
+                    #mod.upload_answers(questions)
 
             else:
-                print("attachment_item", attachment_item)
+                if G_VERBOSE:
+                    print("attachment_item", attachment_item)
+                    return
+
+                if 'property' in attachment_item:
+                    attachment_property = attachment_item['property']
+                    if 'module' in attachment_property:
+                        module_type = attachment_property['module']
+                        print(module_type)
+                else:
+                    print("attachment_item", attachment_item)
 
     def deal_chapter(self, chapter_meta: dict) -> None:
         chapter_info = self.fxxkstar.load_chapter(chapter_meta)
@@ -795,7 +815,7 @@ class LiveModule(AttachmentModule):
         print("[LiveModule] ", self.title)
 
         self.live_info = self._request_info()
-        if self.live_info['temp'].__contains__('data') and self.live_info['temp']['data'].__contains__['mp4Url']:
+        if self.live_info['temp'].__contains__('data') and self.live_info['temp']['data'].__contains__('mp4Url'):
             print("[LiveModule] ", self.live_info['temp']['data']['mp4Url'])
 
     def _request_info(self) -> dict:
@@ -981,7 +1001,7 @@ class VideoModule(AttachmentModule):
 
         report_enc = VideoModule.encode_enc(
             self.clazz_id, int(duration), self.object_id, self.other_info, self.jobid, self.uid, str(playing_time))
-        other_args = "/{0}?clazzId={1}&playingTime={2}&duration={3}&clipTime=0_{3}&objectId={4}&otherInfo={5}&jobid={6}&userid={7}&isdrag=0&view=pc&enc={8}&rt=0.9&dtype=Video&_t={9}".format(
+        other_args = "/{0}?clazzId={1}&playingTime={2}&duration={3}&clipTime=0_{3}&objectId={4}&otherInfo={5}&jobid={6}&userid={7}&isdrag=0&view=pc&enc={8}&rt=1&dtype=Video&_t={9}".format(
             dtoken, self.clazz_id, playing_time, duration, self.object_id, self.other_info, self.jobid, self.uid, report_enc, int(time.time() * 1000))
         report_url_result = report_url_base + other_args
 
@@ -1150,9 +1170,10 @@ class WorkModule(AttachmentModule):
             q_type: int = question['type']
             q_id = question['question_id']
             q_topic = question['topic']
-            answers = question['answers']
+            answers: List[dict] = question['answers']
             if q_type == 0:  # single choice
-                answer_option = answers[0]['option']
+                answer_option = answers[0]['option'] if answers.__len__(
+                ) > 0 else None
                 for option_node in form1.find_all(attrs={"name": f"answer{q_id}"}):
                     if option_node['value'] == answer_option:
                         option_node['checked'] = "true"
@@ -1183,6 +1204,61 @@ class WorkModule(AttachmentModule):
             else:
                 print("not support question type:", q_type)
         return soup.decode()
+
+    @staticmethod
+    def review_questions(questions_state: List[dict]) -> None:
+        "Display questions and answers of the question dict"
+        print("+" + "-" * 46)
+        for question in questions_state:
+            q_type: int = question['type']
+            q_topic = question['topic']
+            answers = question['answers']
+
+            print(f"| {q_topic}")
+
+            if answers == None or answers.__len__() == 0:
+                if q_type == 0 or q_type == 1:
+                    for option_node in question['options']:
+                        print(
+                            f"| {option_node['option']}. {option_node['content']}")
+                else:
+                    print(f"| ")
+            elif q_type == 0:  # single choice
+                answer_option = answers[0]['option']
+                for option_node in question['options']:
+                    if option_node['option'] == answer_option:
+                        print(
+                            f"| {option_node['option']}. {option_node['content']} ✔️")
+                    else:
+                        print(
+                            f"| {option_node['option']}. {option_node['content']} ❌")
+            elif q_type == 1:  # multiple choice
+                checked_value = ""
+                for answer in answers:
+                    checked_value += answer['option']
+                for option_node in question['options']:
+                    if option_node['option'] in checked_value:
+                        print(
+                            f"| {option_node['option']}. {option_node['content']} ✔️")
+                    else:
+                        print(
+                            f"| {option_node['option']}. {option_node['content']} ❌")
+            elif q_type == 3:  # judgment
+                answer_judgment = answers[0]['option']
+                if answer_judgment == True:
+                    print("| ", "✔️")
+                elif answer_judgment == False:
+                    print("| ", "❌")
+                else:
+                    print(answer_judgment)
+            elif q_type == 2:  # fill in the blank
+                print("| ", answers[0]['content'])
+            else:
+                print("not support question type:", q_type)
+
+            print("+" + "-" * 46)
+            time.sleep(random.randint(1200, 1600) / 1000)
+        print()
 
     @staticmethod
     def chaoxing_type_to_banktype(chaoxing_type: int) -> int:
@@ -1229,6 +1305,21 @@ class WorkModule(AttachmentModule):
         return question
 
     @staticmethod
+    def compare_option_content(option_a: dict, option_b: dict) -> bool:
+        "Compare the content of two options"
+        str1: str = option_a['content']
+        str2: str = option_b['content']
+        if str1.strip() == str2.strip():
+            return True
+
+        soup1 = BeautifulSoup(str1, "lxml")
+        soup2 = BeautifulSoup(str2, "lxml")
+        if soup1.get_text().strip() == soup2.get_text().strip():
+            return True
+
+        return False
+
+    @staticmethod
     def fix_answers_option(question: dict) -> None:
         "Regenerate the answer according to the options of the question"
         if question['type'] not in [0, 1]:
@@ -1238,9 +1329,11 @@ class WorkModule(AttachmentModule):
         new_answers = []
         for option in options:
             for answer in answers:
-                if option['content'] == answer['content']:
+                if WorkModule.compare_option_content(option, answer):
                     new_answers.append(option)
                     break
+        if len(new_answers) < len(answers):
+            raise MyError(2, "fix answers warning:" + str(question))
         question['answers'] = new_answers
 
     @staticmethod
@@ -1311,7 +1404,7 @@ class video_report_thread(threading.Thread):
     def run(self) -> None:
         rsp = requests.get(url=self.video_mod.gen_report_url(
             0), headers=self.multimedia_headers)
-        print("[video_thread]", rsp.status_code)
+        print("[video_thread] status", rsp.status_code)
         cookieTmp = self.multimedia_headers['Cookie']
         for item in rsp.cookies:
             cookieTmp = cookieTmp + '; ' + item.name + '=' + item.value
@@ -1396,13 +1489,30 @@ if __name__ == "__main__":
         unfinished_chapters = helper.select_unfinished_chapters(chapters)
         time.sleep(2)
 
+        chose_chapter_index = -1
         while True:
-            choose_chapter = input(G_STRINGS['input_chapter_num'])
-            choose_chapter = int(choose_chapter) - 1
+            choose_chapter = ''
+
+            if G_CONFIG['test']:
+                time.sleep(random.randint(1000, 5000) / 1000)
+            else:
+                choose_chapter = input(G_STRINGS['input_chapter_num']).strip()
+
+            if choose_chapter == 'q' or choose_chapter == 'Q':
+                break
+            if choose_chapter == 'autotest':
+                G_CONFIG['test'] = True
+                choose_chapter = "next"
+            
+            if choose_chapter == "n" or choose_chapter == "next" or choose_chapter == '':
+                choose_chapter = chose_chapter_index + 1
+            else:
+                choose_chapter = int(choose_chapter) - 1
             print()
             if 0 <= choose_chapter < unfinished_chapters.__len__():
                 helper.deal_chapter(unfinished_chapters[choose_chapter])
                 print()
+                chose_chapter_index = choose_chapter
             else:
                 break
 
