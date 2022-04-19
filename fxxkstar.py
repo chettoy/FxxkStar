@@ -58,6 +58,7 @@ G_STRINGS = {
     "input_if_sync_video_progress": "Sync video progress? (y/n): ",
     "input_phone": "Please input your phone number: ",
     "input_password": "Please input your password: ",
+    "login_expired": "Login expired, please login again",
     "login_wrong_input": "Wrong phone number or password",
     "login_reenter": "Please re-enter your phone number and password",
     "login_failed": "Login failed",
@@ -81,6 +82,7 @@ G_STRINGS_CN = {
     "input_if_sync_video_progress": "是否同步视频进度? (y/n): ",
     "input_phone": "请输入您的手机号码: ",
     "input_password": "请输入您的密码: ",
+    "login_expired": "登录过期，请重新登录",
     "login_wrong_input": "手机号或密码错误",
     "login_reenter": "请按回车重新键入账号数据",
     "login_failed": "登陆失败",
@@ -159,7 +161,10 @@ class MyAgent():
 
     def update_cookies_str(self, cookie_str: str) -> None:
         for cookie in cookie_str.split(";"):
-            key, value = cookie.strip().split("=")
+            cookie = cookie.strip()
+            if cookie == "":
+                continue
+            key, value = cookie.split("=")
             self.update_cookie(key, value)
 
     def build_headers(self) -> dict:
@@ -255,22 +260,34 @@ class FxxkStar():
             raise MyError(0, G_STRINGS['antispider_verify'])
         return new_url
 
-    def request(self, url: str, additional_headers: dict = {}, data=None, method="GET") -> requests.Response:
+    def request(self, url: str, additional_headers: dict = {}, data=None, method="GET", retry=2) -> requests.Response:
         headers = self.agent.build_headers_based_on(additional_headers)
         rsp = None
-        if data != None:
-            rsp = requests.request(
-                method=method, url=url, headers=headers, data=data)
-        else:
-            rsp = requests.request(method=method, url=url, headers=headers)
+        while retry >= 0:
+            try:
+                if data != None:
+                    rsp = requests.request(
+                        method=method, url=url, headers=headers, data=data)
+                else:
+                    rsp = requests.request(
+                        method=method, url=url, headers=headers)
+                break
+            except ConnectionError as err:
+                retry -= 1
+                tag = "[{}] ".format(time.asctime(time.localtime(time.time())))
+                print(tag, err)
+                time.sleep(2)
+
         if rsp.status_code == 200:
             # print(rsp.text)
             for item in rsp.cookies:
+                if item.name in ["actix-session"]:
+                    continue
                 self.agent.update_cookie(item.name, item.value)
             return rsp
         else:
             raise MyError(rsp.status_code,
-                          G_STRINGS['error_response'] + ": " + str(rsp.text))
+                          G_STRINGS['error_response'] + ": url=" + url + "\n" + str(rsp.text))
 
     def request_document(self, url: str, header_update: dict = {}, data=None, method="GET"):
         headers = self.agent.headers_additional_document.copy()
@@ -350,13 +367,20 @@ class FxxkStar():
         url = "https://mooc2-ans.chaoxing.com/visit/courses/list?v=" + \
             str(int(time.time() * 1000))
 
-        course_html_text = self.request_xhr(url).text
+        course_html_text = self.request_xhr(url, {
+            'Accept': 'text/html, */*; q=0.01',
+            'Referer': 'https://mooc2-ans.chaoxing.com/visit/interaction'
+        }).text
         course_HTML = etree.HTML(course_html_text)
 
         list_in_html = course_HTML.xpath("//ul[@class='course-list']/li")
         if list_in_html.__len__() == 0:
-            raise MyError(
-                1, G_STRINGS['load_course_list_failed'] + ": " + course_html_text)
+            page_title = course_HTML.xpath("//title/text()")[0].strip()
+            if page_title == "用户登录":
+                raise MyError(9, G_STRINGS['login_expired'])
+            else:
+                raise MyError(
+                    1, G_STRINGS['load_course_list_failed'] + ": " + course_html_text)
 
         i = 0
         course_dict = {}
@@ -1170,7 +1194,7 @@ class WorkModule(AttachmentModule):
             q_type: int = question['type']
             q_id = question['question_id']
             q_topic = question['topic']
-            answers: List[dict] = question['answers']
+            answers: List[dict] = question.get('answers', [])
             if q_type == 0:  # single choice
                 answer_option = answers[0]['option'] if answers.__len__(
                 ) > 0 else None
@@ -1212,7 +1236,7 @@ class WorkModule(AttachmentModule):
         for question in questions_state:
             q_type: int = question['type']
             q_topic = question['topic']
-            answers = question['answers']
+            answers = question.get('answers', None)
 
             print(f"| {q_topic}")
 
@@ -1479,8 +1503,11 @@ if __name__ == "__main__":
         helper = FxxkStarHelper(fxxkstar)
         helper.login_if_need()
         helper.load_courses_if_need()
-        helper.print_course_list()
+        
+        if G_CONFIG['save_state'] and fxxkstar is not None:
+            save_state_to_file(fxxkstar)
 
+        helper.print_course_list()
         choose_course = input(G_STRINGS['input_course_num'])
         print()
         chapters = fxxkstar.get_chapters(choose_course)
@@ -1523,6 +1550,9 @@ if __name__ == "__main__":
         tag = "[{}] ".format(time.asctime(time.localtime(time.time())))
         print(tag, traceback.format_exc())
         print(err)
+        if isinstance(err, MyError) and err.code == 9:
+            fxxkstar.uid = -1
+            fxxkstar.agent.cookies = {}
         if G_CONFIG['save_state'] and fxxkstar is not None:
             save_state_to_file(fxxkstar)
         input()
