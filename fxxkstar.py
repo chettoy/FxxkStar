@@ -34,6 +34,9 @@ G_CONFIG = {
     'always_request_course_list': False,
     'always_request_course_info': True,
 
+    # Submit paper automatically if all questions are answered
+    'auto_submit_work': True,
+
     'save_paper_to_file': False,
 
     # enable test mode
@@ -52,6 +55,7 @@ G_HEADERS = {
 G_STRINGS = {
     "antispider_verify": "Anti-Spider verify",
     "course_list_title": "Course List",
+    "error_please_relogin": "Error: Please relogin",
     "error_response": "Wrong response from server",
     "input_chapter_num": "Input chapter number: ",
     "input_course_num": "Input course number: ",
@@ -66,6 +70,7 @@ G_STRINGS = {
     "load_course_list_failed": "Load course list failed",
     "load_course_list_success": "Load course list success",
     "press_enter_to_continue": "Press Enter to continue...",
+    "ready_to_submit_paper": "Ready to submit paper",
     "save_state_success": "Save state success",
     "sync_video_progress_started": "Sync video progress started",
     "sync_video_progress_ended": "Sync video progress ended",
@@ -76,6 +81,7 @@ G_STRINGS = {
 G_STRINGS_CN = {
     "antispider_verify": "反蜘蛛验证",
     "course_list_title": "课程列表",
+    "error_please_relogin": "请重新登录",
     "error_response": "错误的响应",
     "input_chapter_num": "请输入章节编号: ",
     "input_course_num": "请输入课程编号: ",
@@ -90,6 +96,7 @@ G_STRINGS_CN = {
     "load_course_list_failed": "加载课程列表失败",
     "load_course_list_success": "加载课程列表成功",
     "press_enter_to_continue": "请按回车继续...",
+    "ready_to_submit_paper": "准备提交试卷",
     "save_state_success": "保存状态成功",
     "sync_video_progress_started": "同步视频进度开始",
     "sync_video_progress_ended": "同步视频进度结束",
@@ -755,12 +762,15 @@ class FxxkStarHelper():
 
                 if not mod.is_approved:
                     questions = mod.parse_paper(mod.paper_html)
-                    #mod.correct_answers(questions, mod.work_id, card_url)
+                    # uncertain_questions = mod.correct_answers(
+                    #     questions, mod.work_id, card_url)
                     if G_VERBOSE:
                         print(questions)
                     mod.review_questions(questions)
                     time.sleep(random.randint(1000, 5000) / 1000)
-                    #mod.upload_answers(questions)
+                    # confirm_submit = G_CONFIG["auto_submit_work"] and len(
+                    #     uncertain_questions) == 0
+                    # mod.upload_answers(questions, confirm_submit)
 
             else:
                 if G_VERBOSE:
@@ -1333,12 +1343,34 @@ class WorkModule(AttachmentModule):
         "Compare the content of two options"
         str1: str = option_a['content']
         str2: str = option_b['content']
+
+        # Remove the spaces and compare
         if str1.strip() == str2.strip():
             return True
 
+        # Remove html tags and compare
         soup1 = BeautifulSoup(str1, "lxml")
         soup2 = BeautifulSoup(str2, "lxml")
-        if soup1.get_text().strip() == soup2.get_text().strip():
+        str1 = soup1.get_text().strip()
+        str2 = soup2.get_text().strip()
+        if str1 == str2:
+            return True
+
+        # Uniform punctuation and then compare
+        translate = [
+            ["，", ","],
+            ["。", "."],
+            ["？", "?"],
+            ["！", "!"],
+            ["：", ":"],
+            ["；", ";"],
+            ["（", "("],
+            ["）", ")"],
+        ]
+        for t in translate:
+            str1 = str1.replace(t[0], t[1])
+            str2 = str2.replace(t[0], t[1])
+        if str1 == str2:
             return True
 
         return False
@@ -1361,11 +1393,40 @@ class WorkModule(AttachmentModule):
         question['answers'] = new_answers
 
     @staticmethod
-    def module_work_submit(fxxkstar: FxxkStar, work_page_html: str) -> bool:
+    def _validate(fxxkstar: FxxkStar, course_id: str, clazz_id: str, cpi: str) -> bool:
+        ajax_url = "https://mooc1.chaoxing.com/work/validate?courseId={}&classId={}&cpi={}".format(
+            course_id, clazz_id, cpi)
+        rsp_text = fxxkstar.request_xhr(ajax_url, {
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Referer": "https://mooc1.chaoxing.com/ananas/modules/work/index.html?v=2021-0927-1700&castscreen=0",
+        }).text
+        # {"status":3}
+        if G_VERBOSE:
+            print("[INFO] work_validate, rsp_text=" + rsp_text)
+        result = json.loads(rsp_text)
+        status = result['status']
+        if status == 1:
+            # Failure
+            raise MyError(1, "work_validate, status=1")
+        elif status == 2:
+            # Show verification code
+            print("[WARN] work_validate, show verification code")
+            return True
+        elif status == 3:
+            # Normal
+            print(G_STRINGS["ready_to_submit_paper"])
+            return True
+        else:
+            raise MyError(G_STRINGS['error_response'] +
+                          ", url=" + ajax_url + " ### " + rsp_text)
+
+    @staticmethod
+    def module_work_submit(fxxkstar: FxxkStar, work_page_html: str, do_submit=False) -> bool:
         soup = BeautifulSoup(work_page_html, "lxml")
         form1 = soup.find("form", id="form1")
         course_id = soup.find(id="courseId").get("value")
         class_id = soup.find(id="classId").get("value")
+        cpi = soup.find(id="cpi").get("value")
         enc_work = soup.find(id="enc_work").get("value")
         total_question_num = soup.find(id="totalQuestionNum").get("value")
 
@@ -1375,12 +1436,21 @@ class WorkModule(AttachmentModule):
             if key.startswith("answertype"):
                 answer_all_id += key[10:] + ","
         parms['answerwqbid'] = answer_all_id
-        parms['pyFlag'] = "1"
+        if do_submit:
+            if WorkModule._validate(fxxkstar, course_id, class_id, cpi):
+                # wait 0.2s ~ 1s before submit
+                time.sleep(random.randint(200, 1000)/1000)
+            else:
+                return False
+        else:
+            parms['pyFlag'] = "1"
 
         ajax_url = "https://mooc1.chaoxing.com" + \
             f"/work/addStudentWorkNew?_classId={class_id}&courseid={course_id}&token={enc_work}&totalQuestionNum={total_question_num}"
         ajax_type = form1.get("method") or "post"
         ajax_data = urllib.parse.urlencode(parms)
+        if not do_submit:
+            ajax_url += "&pyFlag=1"
         ajax_url += f"&ua={fxxkstar.get_client_type()}"
         ajax_url += f"&formType={ajax_type}"
         ajax_url += "&saveStatus=1"
@@ -1401,9 +1471,9 @@ class WorkModule(AttachmentModule):
         else:
             raise MyError(result['msg'] + " " + rsp_text)
 
-    def upload_answers(self, answers: List[dict]) -> None:
+    def upload_answers(self, answers: List[dict], confirm_submit=False) -> bool:
         answered_html = WorkModule.render_paper(self.paper_html, answers)
-        WorkModule.module_work_submit(self.fxxkstar, answered_html)
+        return WorkModule.module_work_submit(self.fxxkstar, answered_html, do_submit=confirm_submit)
 
 
 class video_report_thread(threading.Thread):
@@ -1438,11 +1508,10 @@ class video_report_thread(threading.Thread):
         for item in rsp.cookies:
             cookieTmp = cookieTmp + '; ' + item.name + '=' + item.value
         self.multimedia_headers.update({"Cookie": cookieTmp})
-        
+
         # print progress
         print("[%s] 0/%d" % (self.name, self.total_time))
-        
-        
+
         # report play progress
         time_now = 0
         while self.total_time - time_now > 60:
@@ -1515,7 +1584,7 @@ if __name__ == "__main__":
         helper = FxxkStarHelper(fxxkstar)
         helper.login_if_need()
         helper.load_courses_if_need()
-        
+
         if G_CONFIG['save_state'] and fxxkstar is not None:
             save_state_to_file(fxxkstar)
 
@@ -1542,7 +1611,7 @@ if __name__ == "__main__":
             if choose_chapter == 'autotest':
                 G_CONFIG['test'] = True
                 choose_chapter = "next"
-            
+
             if choose_chapter == "n" or choose_chapter == "next" or choose_chapter == '':
                 choose_chapter = chose_chapter_index + 1
             else:
