@@ -53,55 +53,55 @@ G_HEADERS = {
 }
 
 G_STRINGS = {
-    "antispider_verify": "Anti-Spider verify",
+    "antispider_verify": "⚠️ Anti-Spider verify",
     "course_list_title": "Course List",
-    "error_please_relogin": "Error: Please relogin",
-    "error_response": "Wrong response from server",
+    "error_please_relogin": "⚠️ Error: Please relogin",
+    "error_response": "⚠️ Wrong response from server",
     "input_chapter_num": "Input chapter number: ",
     "input_course_num": "Input course number: ",
-    "input_if_sync_video_progress": "Sync video progress? (y/n): ",
+    "input_if_sync_video_progress": "💬 Sync video progress? (y/n): ",
     "input_phone": "Please input your phone number: ",
     "input_password": "Please input your password: ",
-    "login_expired": "Login expired, please login again",
+    "login_expired": "⚠️ Login expired, please login again",
     "login_wrong_input": "Wrong phone number or password",
     "login_reenter": "Please re-enter your phone number and password",
-    "login_failed": "Login failed",
-    "login_success": "Login Success",
+    "login_failed": "Login failed ⚠️",
+    "login_success": "Login Success 🌈",
     "load_course_list_failed": "Load course list failed",
     "load_course_list_success": "Load course list success",
-    "press_enter_to_continue": "Press Enter to continue...",
-    "ready_to_submit_paper": "Ready to submit paper",
+    "press_enter_to_continue": "🔞 Press Enter to continue...",
+    "ready_to_submit_paper": "✅ Ready to submit paper",
     "save_state_success": "Save state success",
     "sync_video_progress_started": "Sync video progress started",
     "sync_video_progress_ended": "Sync video progress ended",
     "unfinished_chapters_title": "Unfinished Chapters",
-    "welcome_message": "Welcome to FxxkStar",
+    "welcome_message": "🌠 Welcome to FxxkStar",
 }
 
 G_STRINGS_CN = {
-    "antispider_verify": "反蜘蛛验证",
+    "antispider_verify": "⚠️ 反蜘蛛验证",
     "course_list_title": "课程列表",
-    "error_please_relogin": "请重新登录",
-    "error_response": "错误的响应",
+    "error_please_relogin": "⚠️ 请重新登录",
+    "error_response": "⚠️ 错误的响应",
     "input_chapter_num": "请输入章节编号: ",
     "input_course_num": "请输入课程编号: ",
-    "input_if_sync_video_progress": "是否同步视频进度? (y/n): ",
+    "input_if_sync_video_progress": "💬 是否同步视频进度? (y/n): ",
     "input_phone": "请输入您的手机号码: ",
     "input_password": "请输入您的密码: ",
-    "login_expired": "登录过期，请重新登录",
+    "login_expired": "⚠️ 登录过期，请重新登录",
     "login_wrong_input": "手机号或密码错误",
     "login_reenter": "请按回车重新键入账号数据",
-    "login_failed": "登陆失败",
-    "login_success": "登陆成功",
+    "login_failed": "登陆失败 ⚠️",
+    "login_success": "登陆成功 🌈",
     "load_course_list_failed": "加载课程列表失败",
     "load_course_list_success": "加载课程列表成功",
-    "press_enter_to_continue": "请按回车继续...",
-    "ready_to_submit_paper": "准备提交试卷",
+    "press_enter_to_continue": "🔞 请按回车继续...",
+    "ready_to_submit_paper": "✅ 准备提交试卷",
     "save_state_success": "保存状态成功",
     "sync_video_progress_started": "同步视频进度开始",
     "sync_video_progress_ended": "同步视频进度结束",
     "unfinished_chapters_title": "未完成章节",
-    "welcome_message": "欢迎使用 FxxkStar",
+    "welcome_message": "🌠 欢迎使用 FxxkStar",
 }
 
 G_VERBOSE = G_CONFIG['debug']
@@ -503,8 +503,9 @@ class FxxkStar():
                 }
                 chapter_list.append(chapter_info)
 
-                print(" - {} {} [{}]".format(chapter_number_str,
-                      chapter_title, knowledgeId))
+                chapter_mark = ["🟢", "🟡", "🔴", "🔴"][unfinished_count]
+                print(" - {} {} {} [{}]".format(chapter_mark or unfinished_count,
+                      chapter_number_str, chapter_title, knowledgeId))
 
         course_info['chapter_list'] = chapter_list
         self.course_info[courseid] = course_info
@@ -1242,6 +1243,8 @@ class WorkModule(AttachmentModule):
     @staticmethod
     def review_questions(questions_state: List[dict]) -> None:
         "Display questions and answers of the question dict"
+        SYM_CORRECT = "✔️"  # "√"
+        SYM_WRONG = "❌"  # "×"
         print("+" + "-" * 46)
         for question in questions_state:
             q_type: int = question['type']
@@ -1262,10 +1265,10 @@ class WorkModule(AttachmentModule):
                 for option_node in question['options']:
                     if option_node['option'] == answer_option:
                         print(
-                            f"| {option_node['option']}. {option_node['content']} ✔️")
+                            f"| {option_node['option']}. {option_node['content']} {SYM_CORRECT}")
                     else:
                         print(
-                            f"| {option_node['option']}. {option_node['content']} ❌")
+                            f"| {option_node['option']}. {option_node['content']} {SYM_WRONG}")
             elif q_type == 1:  # multiple choice
                 checked_value = ""
                 for answer in answers:
@@ -1273,16 +1276,16 @@ class WorkModule(AttachmentModule):
                 for option_node in question['options']:
                     if option_node['option'] in checked_value:
                         print(
-                            f"| {option_node['option']}. {option_node['content']} ✔️")
+                            f"| {option_node['option']}. {option_node['content']} {SYM_CORRECT}")
                     else:
                         print(
-                            f"| {option_node['option']}. {option_node['content']} ❌")
+                            f"| {option_node['option']}. {option_node['content']} {SYM_WRONG}")
             elif q_type == 3:  # judgment
                 answer_judgment = answers[0]['option']
                 if answer_judgment == True:
-                    print("| ", "✔️")
+                    print("| ", SYM_CORRECT)
                 elif answer_judgment == False:
-                    print("| ", "❌")
+                    print("| ", SYM_WRONG)
                 else:
                     print(answer_judgment)
             elif q_type == 2:  # fill in the blank
@@ -1466,7 +1469,7 @@ class WorkModule(AttachmentModule):
             print("[INFO] module_work_submit, rsp_text=" + rsp_text)
         result = json.loads(rsp_text)
         if result['status'] == True:
-            print(result['msg'])
+            print('✅', result['msg'])
             return True
         else:
             raise MyError(result['msg'] + " " + rsp_text)
@@ -1499,7 +1502,7 @@ class video_report_thread(threading.Thread):
         # report play start
         rsp = requests.get(url=self.video_mod.gen_report_url(
             playing_time=0, is_drag=3), headers=self.multimedia_headers)
-        print("[video_thread] status", rsp.status_code)
+        print("▶️", self.video_mod.name, rsp.text)
         if rsp.status_code != 200:
             raise MyError(rsp.status_code, rsp.text)
 
@@ -1510,7 +1513,8 @@ class video_report_thread(threading.Thread):
         self.multimedia_headers.update({"Cookie": cookieTmp})
 
         # print progress
-        print("[%s] 0/%d" % (self.name, self.total_time))
+        print("⏳[%s] %s 0/%d" %
+              (self.name, self.video_mod.name, self.total_time))
 
         # report play progress
         time_now = 0
@@ -1519,8 +1523,8 @@ class video_report_thread(threading.Thread):
             time_now = time_now + 60
             rsp = requests.get(url=self.video_mod.gen_report_url(
                 time_now), headers=self.multimedia_headers)
-            print("[%s] %d/%d" %
-                  (self.name, time_now, self.total_time))
+            print("⏳[%s] %s %d/%d" %
+                  (self.name, self.video_mod.name, time_now, self.total_time))
             if G_VERBOSE:
                 print(self.name, rsp.text)
         time.sleep(self.total_time - time_now)
@@ -1528,7 +1532,9 @@ class video_report_thread(threading.Thread):
         # report play end
         rsp = requests.get(url=self.video_mod.gen_report_url(
             self.total_time, is_drag=4), headers=self.multimedia_headers)
-        print("[%s] %s" % (self.name, rsp.text))
+        print("⌛[%s] %s %s" % (self.name, self.video_mod.name, rsp.text))
+        if rsp.json.__get__('isPassed') == True:
+            print("✅ %s" % (self.video_mod.name))
 
 
 def before_start() -> None:
@@ -1618,7 +1624,11 @@ if __name__ == "__main__":
                 choose_chapter = int(choose_chapter) - 1
             print()
             if 0 <= choose_chapter < unfinished_chapters.__len__():
-                helper.deal_chapter(unfinished_chapters[choose_chapter])
+                current_chapter = unfinished_chapters[choose_chapter]
+                print()
+                print(
+                    f"🔴 {current_chapter['chapterNumber']} {current_chapter['chapterTitle']}")
+                helper.deal_chapter(current_chapter)
                 print()
                 chose_chapter_index = choose_chapter
             else:
