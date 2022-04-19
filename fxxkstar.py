@@ -993,7 +993,7 @@ class VideoModule(AttachmentModule):
         status_url = "https://mooc1.chaoxing.com/ananas/status/{}?k=1606&flag=normal&_dc={}".format(
             object_id, int(time.time() * 1000))
         status_rsp = fxxkstar.request_xhr(status_url, {
-            "Referer": "https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2022-0324-1800"
+            "Referer": "https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2022-0406-1945"
         }, method="GET")
         status_json = json.loads(status_rsp.text)
         if status_json['status'] == "success":
@@ -1011,7 +1011,7 @@ class VideoModule(AttachmentModule):
     def can_play(self) -> bool:
         return self.status_data['status'] == "success"
 
-    def gen_report_url(self, playing_time) -> str | None:
+    def gen_report_url(self, playing_time, is_drag=0) -> str | None:
         if not self.can_play():
             return None
 
@@ -1025,8 +1025,8 @@ class VideoModule(AttachmentModule):
 
         report_enc = VideoModule.encode_enc(
             self.clazz_id, int(duration), self.object_id, self.other_info, self.jobid, self.uid, str(playing_time))
-        other_args = "/{0}?clazzId={1}&playingTime={2}&duration={3}&clipTime=0_{3}&objectId={4}&otherInfo={5}&jobid={6}&userid={7}&isdrag=0&view=pc&enc={8}&rt=1&dtype=Video&_t={9}".format(
-            dtoken, self.clazz_id, playing_time, duration, self.object_id, self.other_info, self.jobid, self.uid, report_enc, int(time.time() * 1000))
+        other_args = "/{0}?clazzId={1}&playingTime={2}&duration={3}&clipTime=0_{3}&objectId={4}&otherInfo={5}&jobid={6}&userid={7}&isdrag={8}&view=pc&enc={9}&rt=0.9&dtype=Video&_t={10}".format(
+            dtoken, self.clazz_id, playing_time, duration, self.object_id, self.other_info, self.jobid, self.uid, is_drag, report_enc, int(time.time() * 1000))
         report_url_result = report_url_base + other_args
 
         return report_url_result
@@ -1414,7 +1414,7 @@ class video_report_thread(threading.Thread):
             video_mod.fxxkstar.agent.headers_additional_xhr, {
                 'Accept': '*/*',
                 'Content-Type': 'application/json',
-                'Referer': 'https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2022-0324-1800',
+                'Referer': 'https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2022-0406-1945',
             })
         self.clazz_id = video_mod.clazz_id
         self.duration = video_mod.status_data['duration']
@@ -1426,27 +1426,39 @@ class video_report_thread(threading.Thread):
         self.video_mod = video_mod
 
     def run(self) -> None:
+        # report play start
         rsp = requests.get(url=self.video_mod.gen_report_url(
-            0), headers=self.multimedia_headers)
+            playing_time=0, is_drag=3), headers=self.multimedia_headers)
         print("[video_thread] status", rsp.status_code)
+        if rsp.status_code != 200:
+            raise MyError(rsp.status_code, rsp.text)
+
+        # update cookies
         cookieTmp = self.multimedia_headers['Cookie']
         for item in rsp.cookies:
             cookieTmp = cookieTmp + '; ' + item.name + '=' + item.value
         self.multimedia_headers.update({"Cookie": cookieTmp})
+        
+        # print progress
         print("[%s] 0/%d" % (self.name, self.total_time))
-        time_now = 60
-        while time_now < self.total_time + 60:
+        
+        
+        # report play progress
+        time_now = 0
+        while self.total_time - time_now > 60:
             time.sleep(60)
+            time_now = time_now + 60
             rsp = requests.get(url=self.video_mod.gen_report_url(
                 time_now), headers=self.multimedia_headers)
             print("[%s] %d/%d" %
                   (self.name, time_now, self.total_time))
             if G_VERBOSE:
                 print(self.name, rsp.text)
-            time_now = time_now + 60
+        time.sleep(self.total_time - time_now)
 
+        # report play end
         rsp = requests.get(url=self.video_mod.gen_report_url(
-            self.total_time), headers=self.multimedia_headers)
+            self.total_time, is_drag=4), headers=self.multimedia_headers)
         print("[%s] %s" % (self.name, rsp.text))
 
 
