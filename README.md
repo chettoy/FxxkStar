@@ -1,10 +1,10 @@
-# [FxxkStar](https://github.com/chettoy/FxxkStar) 
+# FxxkStar
 
-##  Introduction
+[![Python 3.10](https://img.shields.io/badge/python-v3.10-blue)](https://www.python.org/) [![License](https://img.shields.io/github/license/chettoy/FxxkStar)](https://raw.githubusercontent.com/chettoy/FxxkStar/main/LICENSE) ![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/chettoy/FxxkStar)
 
-> `FxxkStar` is an *API* and *example unofficial client* project to provide a better learning experience for college students using the *SuperStar* online classroom platform (or *chaoxing*; *xuexitong*)
+`FxxkStar` is an *API* and *example unofficial client* for the *SuperStar* online classroom platform (or *chaoxing*; *xuexitong*), that provides a better learning experience for students. 
 
-- Are you still struggling because the *SuperStar* client and web version are not good enough?
+- Are you still struggling because of the user experience of the official client and web version?
 - Do you want to use your favorite player to watch videos and browse documents so that you can take some notes in split screen or download them for later viewing without worrying about not having a study record?
 - Do you want to get the correct answer immediately after answering the post-lesson questions to save time in finding the correct answer?
 
@@ -22,30 +22,47 @@
 
 - [ ] Get message notifications
 
-  
 
 **CLI Client Features:**
 
 - [x] Interactive login and listing of course
-
 - [x] Show the list of chapters and the chapters with incomplete tasks
-
-- [x] Show the download link of the document
-
+- [x] Show download links for documents and live replay
 - [x] Synchronize video playback progress
-
 - [x] Quick view of after-class questions
-
 - [ ] Interactive question answering (not implemented)
-
 - [ ] Check-in reminders and message reminders (not implemented)
 
 
 
-## Prerequisites
+## Screenshots
 
-- `python3`
+![Screenshot](https://github.com/chettoy/FxxkStar/raw/main/images/screenshot1.png)
+![Screenshot](https://github.com/chettoy/FxxkStar/raw/main/images/screenshot2.png)
+
+
+
+## Installation
+
+You can download FxxkStar by cloning the [Git](https://github.com/chettoy/FxxkStar) repository:
+
+```shell
+git clone --depth 1 https://github.com/chettoy/FxxkStar.git FxxkStar-dev
+```
+
+FxxkStar works with [Python](https://www.python.org/download/) version 3.10 or above on any platform.
+
+**requirements**
+
 - `lxml`, `beautifulsoup4`, `requests`
+
+You can install requirements with the following command (using TUNA mirror):
+
+```shell
+pip install -i https://pypi.tuna.tsinghua.edu.cn/simple requests
+pip install -i https://pypi.tuna.tsinghua.edu.cn/simple lxml
+pip install -i https://pypi.tuna.tsinghua.edu.cn/simple beautifulsoup4
+```
 
 
 
