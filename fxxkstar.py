@@ -194,7 +194,7 @@ class MyAgent():
 class FxxkStar():
     def __init__(self, my_agent: MyAgent, saved_state: dict = {}):
         self.agent = my_agent
-        self.uid = -1
+        self.uid: str = ""
         self.course_dict = {}
         self.course_info = {}
         self.chapter_info = {}
@@ -463,8 +463,14 @@ class FxxkStar():
 
                 # parse chapter link
                 transfer_url: str = ""
+                course_id = None
+                chapter_id = None
+                clazz_id = None
                 chapter_entrance_node = chapter_item.xpath("./@onclick")
                 if chapter_entrance_node.__len__() == 0:
+                    if G_CONFIG["debug"]:
+                        with open("debug-course-chapters.html", "w") as f:
+                            f.write(chapters_HTML_text)
                     pass
                 else:
                     chapter_entrance = chapter_entrance_node[0].strip()
@@ -483,6 +489,9 @@ class FxxkStar():
                         "&clazzid=" + clazzid + "&ut=s&refer=" + \
                         urllib.parse.quote(referUrl)
                     transfer_url = transferUrl
+                    course_id = courseid
+                    chapter_id = knowledgeId
+                    clazz_id = clazzid
 
                 unfinished_count = 0
                 task_status_HTML = chapter_item.xpath(
@@ -495,19 +504,21 @@ class FxxkStar():
                 chapter_info = {
                     'chapterNumber': chapter_number_str,
                     'chapterTitle': chapter_title,
-                    'courseid': courseid,
-                    'knowledgeId':  knowledgeId,
-                    'clazzid': clazzid,
+                    'courseid': course_id,
+                    'knowledgeId':  chapter_id,
+                    'clazzid': clazz_id,
                     'transferUrl': transfer_url,
                     'unfinishedCount': unfinished_count,
                 }
                 chapter_list.append(chapter_info)
 
-                chapter_mark = ["🟢", "🟡", "🔴", "🔴"][unfinished_count]
-                print(" - {} {} {} [{}]".format(chapter_mark or unfinished_count,
-                      chapter_number_str, chapter_title, knowledgeId))
+                chapter_mark = unfinished_count if unfinished_count > 3 else [
+                    "🟢", "🟡", "🔴", "🔴"][unfinished_count]
+                print(" - {} {} {} [{}]".format(chapter_mark,
+                      chapter_number_str, chapter_title, chapter_id))
 
         course_info['chapter_list'] = chapter_list
+        courseid = course_info['courseid']
         self.course_info[courseid] = course_info
         print()
         return course_info
@@ -681,7 +692,7 @@ class FxxkStarHelper():
         print(G_STRINGS['login_success'])
 
     def login_if_need(self) -> str:
-        if self.fxxkstar.uid == -1:
+        if self.fxxkstar.uid == "":
             self.start_interactive_login(self.fxxkstar)
             time.sleep(2)
             # force reload course list after login
@@ -814,18 +825,18 @@ class FxxkStarHelper():
 
 class AttachmentModule:
     def __init__(self, fxxkstar: FxxkStar, attachment_item: dict, card_args: dict, course_id, clazz_id, chapter_id):
-        self.fxxkstar = fxxkstar
-        self.uid = fxxkstar.uid
-        self.attachment_item = attachment_item
-        self.card_args = card_args
-        self.course_id = course_id
-        self.clazz_id = clazz_id
-        self.chapter_id = chapter_id
-        self.mid = attachment_item['mid']
-        self.defaults = card_args['defaults']
-        self.no_job = attachment_item.get("job") == None
-        self.module_type = attachment_item.get("type")
-        self.attachment_property = attachment_item.get("property")
+        self.fxxkstar: FxxkStar = fxxkstar
+        self.uid: str = fxxkstar.uid
+        self.attachment_item: dict = attachment_item
+        self.card_args: dict = card_args
+        self.course_id: str = course_id
+        self.clazz_id: str = clazz_id
+        self.chapter_id: str = chapter_id
+        self.mid: str = attachment_item['mid']
+        self.defaults: dict = card_args['defaults']
+        self.job: bool = attachment_item.get("job", False)
+        self.module_type: str = attachment_item.get("type")
+        self.attachment_property: dict = attachment_item.get("property")
 
 
 class LiveModule(AttachmentModule):
@@ -940,17 +951,17 @@ class DocumentModule(AttachmentModule):
                          card_args, course_id, clazz_id, chapter_id)
         assert self.module_type == "document"
 
-        self.other_info = attachment_item.get("otherInfo")
-        self.jtoken = attachment_item.get("jtoken")
-        self.name = self.attachment_property.get("name")
-        self.object_id = self.attachment_property.get("objectid")
+        self.other_info: str = attachment_item.get("otherInfo")
+        self.jtoken: str = attachment_item.get("jtoken")
+        self.name: str = self.attachment_property.get("name")
+        self.object_id: str = self.attachment_property.get("objectid")
 
         print("[DocumentModule] ", self.name)
         self.status_data = DocumentModule._request_status(
             self.fxxkstar, self.object_id)
         print("[DocumentModule] ", self.status_data['pdf'])
 
-        if not self.no_job:
+        if self.job:
             jobid = attachment_item.get("jobid")
             DocumentModule._misson_doucument(fxxkstar=self.fxxkstar, course_id=course_id,
                                              clazz_id=clazz_id, chapter_id=chapter_id, jobid=jobid, jtoken=self.jtoken)
@@ -988,10 +999,11 @@ class VideoModule(AttachmentModule):
                          card_args, course_id, clazz_id, chapter_id)
         assert self.module_type == "video"
 
-        self.object_id = attachment_item.get("objectId")
-        self.other_info = attachment_item.get("otherInfo")
-        self.jobid = attachment_item.get("jobid")
-        self.name = self.attachment_property.get("name")
+        self.object_id: str = attachment_item.get("objectId")
+        self.other_info: str = attachment_item.get("otherInfo")
+        self.jobid: str = attachment_item.get("jobid")
+        self.is_passed: bool = attachment_item.get("isPassed", False)
+        self.name: str = self.attachment_property.get("name")
 
         print("[VideoModule] ", self.name)
         self.status_data = VideoModule._request_status(
@@ -1227,7 +1239,8 @@ class WorkModule(AttachmentModule):
                         del check_value['checked']
                 form1.find(id=f"answer{q_id}")['value'] = check_radio_value
             elif q_type == 3:  # judgment
-                answer_judgment = answers[0]['option']
+                answer_judgment = answers[0]['option'] if len(
+                    answers) > 0 else ""
                 for option_node in form1.find_all(attrs={"name": f"answer{q_id}"}):
                     if str(option_node['value']).lower() == str(answer_judgment).lower():
                         option_node['checked'] = "true"
@@ -1235,7 +1248,10 @@ class WorkModule(AttachmentModule):
                         del option_node['checked']
             elif q_type == 2:  # fill in the blank
                 option_node = form1.find_all(attrs={"name": f"answer{q_id}"})
-                option_node['value'] = answers[0]['content']
+                if len(answers) > 0:
+                    option_node['value'] = answers[0]['content']
+                else:
+                    del option_node['value']
             else:
                 print("not support question type:", q_type)
         return soup.decode()
@@ -1300,13 +1316,14 @@ class WorkModule(AttachmentModule):
     @staticmethod
     def chaoxing_type_to_banktype(chaoxing_type: int) -> int:
         "Convert the question type of chaoxing to the type of answerbank"
-        # 0: Single Choice, 1: Multiple Choice, 2: Fill in the Blank, 3: Judgment | chaoxing
+        # 0: Single Choice, 1: Multiple Choice, 2: Fill in the Blank, 3: Judgment, 4: Short answer questions | chaoxing
         # 1: Single Choice, 2: Multiple Choice, 3: Judgment, 4: Fill in the Blank | answerbank
         translate_map = {
             0: 1,
             1: 2,
             2: 4,
-            3: 3
+            3: 3,
+            4: 4,
         }
         return translate_map[chaoxing_type]
 
@@ -1317,7 +1334,7 @@ class WorkModule(AttachmentModule):
             1: 0,
             2: 1,
             4: 2,
-            3: 3
+            3: 3,
         }
         return translate_map[banktype]
 
@@ -1476,7 +1493,12 @@ class WorkModule(AttachmentModule):
 
     def upload_answers(self, answers: List[dict], confirm_submit=False) -> bool:
         answered_html = WorkModule.render_paper(self.paper_html, answers)
-        return WorkModule.module_work_submit(self.fxxkstar, answered_html, do_submit=confirm_submit)
+        if WorkModule.module_work_submit(self.fxxkstar, answered_html, do_submit=confirm_submit):
+            time.sleep(0.2)
+            self.load()
+            return True
+        else:
+            return False
 
 
 class video_report_thread(threading.Thread):
@@ -1642,7 +1664,7 @@ if __name__ == "__main__":
         print(tag, traceback.format_exc())
         print(err)
         if isinstance(err, MyError) and err.code == 9:
-            fxxkstar.uid = -1
+            fxxkstar.uid = ""
             fxxkstar.agent.cookies = {}
         if G_CONFIG['save_state'] and fxxkstar is not None:
             save_state_to_file(fxxkstar)
