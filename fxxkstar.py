@@ -14,6 +14,7 @@ import traceback
 import urllib.parse
 from lxml import etree
 from bs4 import BeautifulSoup
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import List
 
 
@@ -760,7 +761,7 @@ class FxxkStarHelper():
                 mod = VideoModule(self.fxxkstar, attachment_item,
                                   card_args, course_id, clazz_id, chapter_id)
 
-                if mod.can_play():
+                if mod.can_play() and not mod.is_passed:
                     self.video_to_watch.append(mod)
 
             elif attachment_type == "workid":
@@ -808,17 +809,26 @@ class FxxkStarHelper():
     def get_cookies(self) -> str:
         return self.fxxkstar.get_agent().get_cookie_str()
 
-    def sync_video_progress(self) -> None:
-        video_report_thread_pool = []
-        while self.video_to_watch:
-            video_item: VideoModule = self.video_to_watch.pop(0)
-            video_report_thread_pool.append(video_report_thread(video_item))
+    def sync_video_progress(self, thread_count=3) -> None:
+        thread_pool = ThreadPoolExecutor(max_workers=thread_count)
+
+        def mission(video_mod: VideoModule):
+            video_report_action(video_mod).run()
+
         print(G_STRINGS['sync_video_progress_started'])
-        for item in video_report_thread_pool:
-            item.start()
-            time.sleep(1)
-        for item in video_report_thread_pool:
-            item.join()
+        
+        future_list: List[Future] = []
+        while self.video_to_watch:
+            while self.video_to_watch and len(future_list) < thread_count:
+                video_item: VideoModule = self.video_to_watch.pop(0)
+                future = thread_pool.submit(mission, video_item)
+                future_list.append(future)
+                time.sleep(1)
+            if len(future_list) > 0:
+                future = future_list.pop(0)
+                future.result()
+
+        thread_pool.shutdown()
         print(G_STRINGS['sync_video_progress_ended'])
         print()
 
@@ -1501,10 +1511,9 @@ class WorkModule(AttachmentModule):
             return False
 
 
-class video_report_thread(threading.Thread):
+class video_report_action:
 
     def __init__(self, video_mod: VideoModule):
-        super(video_report_thread, self).__init__()
         self.multimedia_headers = video_mod.fxxkstar.agent.build_headers_based_on(
             video_mod.fxxkstar.agent.headers_additional_xhr, {
                 'Accept': '*/*',
@@ -1521,6 +1530,8 @@ class video_report_thread(threading.Thread):
         self.video_mod = video_mod
 
     def run(self) -> None:
+        self.name = threading.current_thread().name
+
         # report play start
         rsp = requests.get(url=self.video_mod.gen_report_url(
             playing_time=0, is_drag=3), headers=self.multimedia_headers)
