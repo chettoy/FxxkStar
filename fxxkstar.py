@@ -816,7 +816,7 @@ class FxxkStarHelper():
             video_report_action(video_mod).run()
 
         print(G_STRINGS['sync_video_progress_started'])
-        
+
         future_list: List[Future] = []
         while self.video_to_watch:
             while self.video_to_watch and len(future_list) < thread_count:
@@ -1683,3 +1683,4 @@ if __name__ == "__main__":
     finally:
         if G_CONFIG['save_state'] and fxxkstar is not None:
             save_state_to_file(fxxkstar)
+        input(G_STRINGS["press_enter_to_continue"])
