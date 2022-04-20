@@ -181,9 +181,9 @@ class MyAgent():
             headers["Cookie"] = self.get_cookie_str()
             self.headers_cache = headers
             self.headers_dirty = False
-            return headers
+            return headers.copy()
         else:
-            return self.headers_cache
+            return self.headers_cache.copy()
 
     def build_headers_based_on(self, given_headers: dict, additional_headers: dict = {}) -> dict:
         headers = self.build_headers()
