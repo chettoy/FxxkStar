@@ -3,6 +3,7 @@
 # -*- coding:utf-8 -*-
 
 import base64
+import datetime
 import getpass
 import json
 import random
@@ -67,10 +68,12 @@ G_STRINGS = {
     "login_wrong_input": "Wrong phone number or password",
     "login_reenter": "Please re-enter your phone number and password",
     "login_failed": "Login failed ⚠️",
-    "login_success": "Login Success 🌈",
+    "login_success": "Login success ✅",
     "load_course_list_failed": "Load course list failed",
     "load_course_list_success": "Load course list success",
     "press_enter_to_continue": "🔞 Press Enter to continue...",
+    "profile_greeting": "🌈 Hello, {name}",
+    "profile_student_num": "Student number: {f[0][1]}",
     "ready_to_submit_paper": "✅ Ready to submit paper",
     "save_state_success": "Save state success",
     "sync_video_progress_started": "Sync video progress started",
@@ -93,10 +96,12 @@ G_STRINGS_CN = {
     "login_wrong_input": "手机号或密码错误",
     "login_reenter": "请按回车重新键入账号数据",
     "login_failed": "登陆失败 ⚠️",
-    "login_success": "登陆成功 🌈",
+    "login_success": "登陆成功 ✅",
     "load_course_list_failed": "加载课程列表失败",
     "load_course_list_success": "加载课程列表成功",
     "press_enter_to_continue": "🔞 请按回车继续...",
+    "profile_greeting": "🌈 您好, {name}",
+    "profile_student_num": "学号: {f[0][1]}",
     "ready_to_submit_paper": "✅ 准备提交试卷",
     "save_state_success": "保存状态成功",
     "sync_video_progress_started": "同步视频进度开始",
@@ -156,6 +161,9 @@ class MyAgent():
             cookie_str = cookie_str[:-2]
         return cookie_str
 
+    def get_cookie_value(self, key: str) -> str:
+        return self.cookies.get(key, "")
+
     def update_cookie(self, name: str, value: str) -> None:
         self.headers_dirty = True
         if value == "":
@@ -196,6 +204,7 @@ class FxxkStar():
     def __init__(self, my_agent: MyAgent, saved_state: dict = {}):
         self.agent = my_agent
         self.uid: str = ""
+        self.account_info = {}
         self.course_dict = {}
         self.course_info = {}
         self.chapter_info = {}
@@ -204,6 +213,8 @@ class FxxkStar():
                 self.agent.update_cookies_str(saved_state["cookies"])
             if saved_state.get("uid") is not None:
                 self.uid = saved_state.get("uid")
+            if saved_state.get("account_info") is not None:
+                self.account_info = saved_state.get("account_info")
             if saved_state.get("course_dict") is not None:
                 self.course_dict = saved_state.get("course_dict")
             if saved_state.get("course_info") is not None:
@@ -216,6 +227,7 @@ class FxxkStar():
             "version": VERSION_NAME,
             "cookies": self.agent.get_cookie_str(),
             "uid": self.uid,
+            "account_info": self.account_info,
             "course_dict": self.course_dict,
             "course_info": self.course_info,
             "chapter_info": self.chapter_info,
@@ -371,9 +383,94 @@ class FxxkStar():
 
         return fields
 
+    @staticmethod
+    def get_time_millis() -> int:
+        return int(round(time.time() * 1000))
+
+    @staticmethod
+    def sleep(duration: int, max_duration: int = 0) -> None:
+        'Sleep for a random amount of milliseconds, up to max_duration'
+        if duration < max_duration:
+            time.sleep(random.randint(duration, max_duration) / 1000)
+        else:
+            time.sleep(duration / 1000)
+
+    @staticmethod
+    def format_date_like_javascript() -> str:
+        # format: Fri Feb 07 1997 00:00:00 GMT+0800 (中国标准时间)
+        t = datetime.datetime.utcnow() + datetime.timedelta(hours=+8)
+        return t.strftime("%a %b %d %Y %H:%M:%S GMT+0800 (中国标准时间)")
+
+    def load_profile(self) -> dict:
+        url0 = "https://i.chaoxing.com"
+        homepage_url = self.url_302(url0)
+        homepage_html = self.request_document(homepage_url).text
+        homepage_soup = BeautifulSoup(homepage_html, "lxml")
+        assert homepage_soup.find("title").string.strip() == "个人空间"
+
+        self.sleep(500, 700)
+
+        url1 = "https://i.chaoxing.com/base/verify"
+        parms1 = {"_t": self.format_date_like_javascript()}
+        if G_VERBOSE:
+            print("[INFO] load_profile verify")
+        result1 = self.request_xhr(url1, {
+            "Origin": "https://i.chaoxing.com",
+            "Referer": homepage_url,
+        }, data=parms1, method="POST").json()
+        if result1.get("status", False) != True:
+            raise MyError(0, G_STRINGS['error_response'] +
+                          ": url=" + url1 + "\n" + str(result1))
+
+        url2 = "https://i.chaoxing.com/base/settings"
+        if G_VERBOSE:
+            print("[INFO] load_profile settings")
+        self.request_iframe(url2, {
+            "Referer": homepage_url,
+        })
+
+        self.sleep(50, 200)
+
+        url3 = "https://passport2.chaoxing.com/mooc/accountManage"
+        if G_VERBOSE:
+            print("[INFO] load_profile accountManage")
+        account_page_html = self.request_iframe(url3, {
+            "Referer": "https://i.chaoxing.com/",
+        }).text
+
+        def _parse_profile(account_page_html: str):
+            soup = BeautifulSoup(account_page_html, "lxml")
+            title = soup.find("title").string.strip()
+            assert title == "账号管理"
+            info_div = soup.find("div", class_="infoDiv")
+            name = info_div.find(id="messageName").string.strip()
+            phone = info_div.find(id="messagePhone").string.strip()
+            sex = info_div.select(".sex .check.checked")[0].get("value", None)
+            if sex != None:
+                sex = int(sex)
+            fid_list_el = info_div.find(id="messageFid").find_all("li")
+            fid_list = []
+            for fid_el in fid_list_el:
+                item_name: str = fid_el.contents[0].strip()
+                item_value: str = fid_el.find(
+                    class_="xuehao").get_text().strip()
+                if item_value.startswith("学号/工号:"):
+                    item_value = item_value[6:]
+                fid_list.append([item_name, item_value])
+
+            return {
+                "name": name,
+                "sex": sex,
+                "phone": phone,
+                "f": fid_list,
+            }
+
+        self.account_info = _parse_profile(account_page_html)
+        return self.account_info
+
     def load_courses(self) -> None:
         url = "https://mooc2-ans.chaoxing.com/visit/courses/list?v=" + \
-            str(int(time.time() * 1000))
+            str(self.get_time_millis())
 
         course_html_text = self.request_xhr(url, {
             'Accept': 'text/html, */*; q=0.01',
@@ -525,11 +622,12 @@ class FxxkStar():
         return course_info
 
     def request_class_detail(self, course_id, clazz_id, course_cpi) -> dict:
-        url = "https://mobilelearn.chaoxing.com/v2/apis/class/getClassDetail?fid=1606&courseId={}&classId={}".format(
-            course_id, clazz_id)
+        fid = self.get_agent().get_cookie_value("fid")
+        url = "https://mobilelearn.chaoxing.com/v2/apis/class/getClassDetail?fid={}&courseId={}&classId={}".format(
+            fid, course_id, clazz_id)
         rsp_text = self.request(url, {
             "Accept": "application/json, text/plain, */*",
-            "Referer": "https://mobilelearn.chaoxing.com/page/active/stuActiveList?courseid={}&clazzid={}&cpi={}&ut=s&fid=1606".format(course_id, clazz_id, course_cpi),
+            "Referer": "https://mobilelearn.chaoxing.com/page/active/stuActiveList?courseid={}&clazzid={}&cpi={}&ut=s&fid={}".format(course_id, clazz_id, course_cpi, fid),
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
@@ -690,15 +788,21 @@ class FxxkStarHelper():
                 print(G_STRINGS['press_enter_to_continue'])
                 input()
 
-        print(G_STRINGS['login_success'])
-
     def login_if_need(self) -> str:
-        if self.fxxkstar.uid == "":
+        if self.fxxkstar.get_agent().get_cookie_value("_uid") == "":
             self.start_interactive_login(self.fxxkstar)
             time.sleep(2)
             # force reload course list after login
             G_CONFIG["always_request_course_list"] = True
         return self.fxxkstar.uid
+
+    def show_profile(self) -> dict:
+        if self.fxxkstar.account_info == {}:
+            self.fxxkstar.load_profile()
+        profile = self.fxxkstar.account_info
+        print(G_STRINGS['profile_greeting'].format(**profile))
+        print(G_STRINGS['profile_student_num'].format(**profile))
+        return profile
 
     def load_courses_if_need(self) -> dict:
         if self.fxxkstar.course_dict == {} or G_CONFIG['always_request_course_list']:
@@ -773,7 +877,7 @@ class FxxkStarHelper():
                         f.write(mod.paper_html)
                     print("[Work] ", mod.title, mod.work_id, " saved")
 
-                if not mod.is_approved:
+                if not mod.is_marked:
                     questions = mod.parse_paper(mod.paper_html)
                     # uncertain_questions = mod.correct_answers(
                     #     questions, mod.work_id, card_url)
@@ -1138,7 +1242,7 @@ class WorkModule(AttachmentModule):
         if G_VERBOSE:
             print("[INFO] module_work, src=" + src)
 
-        headers = self.fxxkstar.agent.build_headers_based_on(self.fxxkstar.agent.headers_additional_iframe, {
+        headers = self.fxxkstar.get_agent().build_headers_based_on(self.fxxkstar.get_agent().headers_additional_iframe, {
             "Referer": "https://mooc1.chaoxing.com/ananas/modules/work/index.html?v=2021-0927-1700&castscreen=0"
         })
         src2 = self.fxxkstar.url_302(src, headers)
@@ -1146,7 +1250,7 @@ class WorkModule(AttachmentModule):
         work_HTML_text = self.fxxkstar.request(src3, headers).text
         if G_VERBOSE:
             print()
-        self.is_approved = "selectWorkQuestionYiPiYue" in src3
+        self.is_marked = "selectWorkQuestionYiPiYue" in src3
         self.paper_html = work_HTML_text
         return work_HTML_text
 
@@ -1353,18 +1457,21 @@ class WorkModule(AttachmentModule):
         "Randomly generate the answers in the question dict"
         question = question_state.copy()
         q_type = question['type']
-        options = question['options']
         answer = []
         if q_type == 0:
-            answer.append(random.choice(options))
+            answer.append(random.choice(question['options']))
         elif q_type == 1:
-            for option in options:
+            for option in question['options']:
                 if random.random() > 0.5:
                     answer.append(option)
-        elif q_type == 2:
+        elif q_type == 2 or q_type == 4:
             answer.append({"option": "一", "content": ""})
         elif q_type == 3:
-            answer.append(random.choice(options))
+            judgement_options = [
+                {"option": True, "content": True},
+                {"option": False, "content": False}
+            ]
+            answer.append(random.choice(judgement_options))
         question['answers'] = answer
         return question
 
@@ -1514,8 +1621,8 @@ class WorkModule(AttachmentModule):
 class video_report_action:
 
     def __init__(self, video_mod: VideoModule):
-        self.multimedia_headers = video_mod.fxxkstar.agent.build_headers_based_on(
-            video_mod.fxxkstar.agent.headers_additional_xhr, {
+        self.multimedia_headers = video_mod.fxxkstar.get_agent().build_headers_based_on(
+            video_mod.fxxkstar.get_agent().headers_additional_xhr, {
                 'Accept': '*/*',
                 'Content-Type': 'application/json',
                 'Referer': 'https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2022-0406-1945',
@@ -1622,6 +1729,10 @@ if __name__ == "__main__":
 
         helper = FxxkStarHelper(fxxkstar)
         helper.login_if_need()
+        helper.show_profile()
+        print()
+        time.sleep(2.5)
+
         helper.load_courses_if_need()
 
         if G_CONFIG['save_state'] and fxxkstar is not None:
@@ -1676,7 +1787,7 @@ if __name__ == "__main__":
         print(err)
         if isinstance(err, MyError) and err.code == 9:
             fxxkstar.uid = ""
-            fxxkstar.agent.cookies = {}
+            fxxkstar.get_agent().cookies = {}
         if G_CONFIG['save_state'] and fxxkstar is not None:
             save_state_to_file(fxxkstar)
         input()
