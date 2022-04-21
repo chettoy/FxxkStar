@@ -874,8 +874,11 @@ class FxxkStarHelper():
                         f.write(mod.paper_html)
                     print("[Work] ", mod.title, mod.work_id, " saved")
 
-                if not mod.is_marked:
-                    questions = mod.parse_paper(mod.paper_html)
+                questions = mod.parse_paper(mod.paper_html)
+                if mod.is_marked:
+                    if G_VERBOSE:
+                        print(questions)
+                else:
                     # uncertain_questions = mod.correct_answers(
                     #     questions, mod.work_id, card_url)
                     if G_VERBOSE:
@@ -1266,68 +1269,191 @@ class WorkModule(AttachmentModule):
     @staticmethod
     def parse_paper(paper_page_html: str) -> List[dict]:
         "Parsing the questions and answers in the page html into dict"
+
         soup = BeautifulSoup(paper_page_html, "lxml")
-        form1 = soup.find("form", id="form1")
-        question_divs = form1.find_all("div", class_="TiMu")
-        title_tags = ["【单选题】", "【多选题】", "【填空题】", "【判断题】"]
+
+        top_div = soup.find("div", class_="ZyTop")
+        status_el = top_div.select("h3 span")
+        status_title = status_el[0].text.strip() if status_el else ''
+        assert status_title in ["待做", "已完成"]
+        marked = status_title == "已完成"
+        score = -1
+
+        if marked:
+            # [ <span style="font-size:16px;top:25px;color:#db2727;padding-left:5px;">已完成</span>,
+            #   <span style="font-size:16px;top:25px;float:right;">本次成绩：<span style="color: #000">100</span></span>,
+            #   <span style="color: #000">100</span> ]
+            assert len(status_el) == 3
+            score = int(status_el[2].text.strip())
+            assert f"本次成绩：{score}" in status_el[1].text.strip()
+
+        q_div = soup.find("div", id="ZyBottom")
+        question_divs = q_div.find_all("div", class_="TiMu")
+        title_tags = ["【单选题】", "【多选题】", "【填空题】", "【判断题】", "【简答题】"]
         questions = []
         for question_div in question_divs:
             question_title = question_div.select(
                 ".Zy_TItle > .clearfix,.Cy_TItle > .clearfix")[0].text.strip()
-            for title_tag in title_tags:
-                if question_title.startswith(title_tag):
-                    question_title = question_title[len(title_tag):].strip()
+            question_tag = ""
+            question_type = -1
+            for i in range(len(title_tags)):
+                if question_title.startswith(title_tags[i]):
+                    question_tag = title_tags[i]
+                    question_type = i
+                    question_title = question_title[len(question_tag):].strip()
                     break
-            answertype_node = question_div.find(
-                "input", id=re.compile("answertype"))
-            question_type = int(answertype_node.get("value"))
-            question_id = answertype_node.get("id")[10:]
+            assert question_type >= 0
+            assert question_tag in title_tags
+
             question = {
                 "topic": question_title,
-                "type": question_type,
-                "question_id": question_id,
+                "type": question_type,  # choice: 0, multiple: 1, fill: 2, judge: 3, short: 4
+                "options": None,  # type: List[dict], may not exist
+                "correct": None,  # correct options, only available if marked
+                "wrong": None,  # wrong options, only available if marked
+                "answer": None,  # answer string, only available if marked
+                "is_correct": None,  # is_correct, only available if marked
+                "correct_answer": None,  # correct answer string, only available if marked, may not exist
+                "question_id": None,  # question id, only available if not finished
             }
-            if question_type == 0 or question_type == 1:
+
+            if not marked:  # parse question_id
+                answertype_node = question_div.find(
+                    "input", id=re.compile("answertype"))
+                assert question_type == int(answertype_node.get("value"))
+                question_id = answertype_node.get("id")[10:]
+                question["question_id"] = question_id
+            else:  # parse answer
+                answer_el = question_div.select(".Py_answer")[0]
+
+                answer_mark_el = answer_el.select("i.fr")
+                if answer_mark_el:
+                    answer_mark_classlist: list = answer_mark_el[0].get(
+                        "class")
+                    if "dui" in answer_mark_classlist:
+                        question["is_correct"] = True
+                    elif "cuo" in answer_mark_classlist:
+                        question["is_correct"] = False
+                    else:
+                        print("[WARN] module_work, parse_paper, unexpected answer_mark_classlist:",
+                              answer_mark_classlist)
+                        assert False
+
+                answer_result_el = answer_el.select("span")
+                answer: str = answer_result_el[0].text.strip()
+                if answer.startswith("正确答案："):
+                    question["correct_answer"] = answer[len("正确答案："):].strip()
+                    assert len(answer_result_el) > 2
+                    answer = answer_result_el[1].text.strip()
+                    assert answer.startswith("我的答案：")
+                elif answer.startswith("我的答案："):
+                    pass
+                else:
+                    assert False
+                question["answer"] = answer[len("我的答案："):].strip()
+
+            # parse options
+            if question_type == 0 or question_type == 1:  # Choice
                 options = []
                 selected = []
-                option_nodes = question_div.select("ul.fl li")
-                for option_node in option_nodes:
-                    option_input_node = option_node.select(
-                        "label.fl.before input")[0]
-                    option = option_input_node.get("value")
-                    content = option_node.select("a.fl.after")[0].text.strip()
-                    option_info = {"option": option, "content": content}
-                    options.append(option_info)
-                    if option_input_node.get("checked") == "true":
-                        selected.append(option_info)
+                option_nodes = question_div.select("ul.Zy_ulTop li")
+
+                if marked:
+                    for option_node in option_nodes:
+                        option: str = option_node.select(
+                            "i.fl")[0].text.strip()
+                        content: str = option_node.select(
+                            "a.fl")[0].text.strip()
+                        assert len(option) == 2 and option.endswith("、")  # A、
+                        option = option[:-1]
+                        option_info = {"option": option, "content": content}
+                        options.append(option_info)
+
+                    not_selected = []
+                    for option_info in options:
+                        if option_info["option"] in question["answer"]:
+                            selected.append(option_info)
+                        else:
+                            not_selected.append(option_info)
+                    if question["is_correct"] is not None:
+                        if question["is_correct"] == True:
+                            question["correct"] = selected
+                        elif question_type == 0:
+                            question["wrong"] = selected
+
+                    assert len(selected) == len(question["answer"])
+                else:
+                    for option_node in option_nodes:
+                        option_input_node = option_node.select(
+                            "label.fl.before input")[0]
+                        option = option_input_node.get("value")
+                        content = option_node.select("a.fl.after")[
+                            0].text.strip()
+                        option_info = {"option": option, "content": content}
+                        options.append(option_info)
+                        if option_input_node.get("checked") == "true":
+                            selected.append(option_info)
                 question['options'] = options
                 if selected.__len__() > 0:
                     question['answers'] = selected
-            elif question_type == 3:
-                choices_node = question_div.find_all(
-                    "input", attrs={"name": f"answer{question_id}"})
+
+            elif question_type == 3:  # Judge
                 selected = []
-                for choice_node in choices_node:
-                    if choice_node.get("checked") == "true":
-                        judge = choice_node.get("value")
-                        if judge == "true":
-                            selected.append({"option": True, "content": True})
-                        elif judge == "false":
-                            selected.append(
-                                {"option": False, "content": False})
-                        else:
-                            selected.append(
-                                {"option": judge, "content": judge})
-                        break
+                if marked:
+                    answer = question["answer"]
+                    assert answer == "√" or answer == "×"
+                    if answer == "√":
+                        selected.append({"option": True, "content": True})
+                    elif answer == "×":
+                        selected.append({"option": False, "content": False})
+                    if question["is_correct"] is not None:
+                        if question["is_correct"] == True:
+                            question["correct"] = selected
+                        elif question["is_correct"] == False:
+                            correct_judge = not selected[0]["option"]
+                            question["correct"] = [
+                                {"option": correct_judge, "content": correct_judge}]
+                    assert len(selected) == 1
+                else:
+                    choices_node = question_div.find_all(
+                        "input", attrs={"name": f"answer{question_id}"})
+                    assert len(choices_node) == 2
+                    for choice_node in choices_node:
+                        if choice_node.get("checked") == "true":
+                            judge = choice_node.get("value")
+                            assert judge in ["true", "false"]
+                            if judge == "true":
+                                selected.append(
+                                    {"option": True, "content": True})
+                            elif judge == "false":
+                                selected.append(
+                                    {"option": False, "content": False})
+                            break
                 if len(selected) > 0:
                     question['answers'] = selected
-            elif question_type == 2:
-                content = question_div.find(
-                    attrs={"name": f"answer{question_id}"}).get("value")
+            elif question_type == 2:  # Fill
+                content = None
+                if marked:
+                    content = question["answer"]
+                else:
+                    content = question_div.find(
+                        attrs={"name": f"answer{question_id}"}).get("value")
                 if content:
                     question['answers'] = [{"option": "一", "content": content}]
+                if question["correct_answer"]:
+                    question['correct'] = [
+                        {"option": "一", "content": question["correct_answer"]}]
+                elif question["is_correct"] == True:
+                    question["correct"] = question["answers"]
             else:
                 print("not support question type:", question_type)
+
+            empty_properties = []
+            for key in question.keys():
+                if question[key] == None:
+                    empty_properties.append(key)
+            for key in empty_properties:
+                del question[key]
             questions.append(question)
         return questions
 
@@ -1621,7 +1747,11 @@ class WorkModule(AttachmentModule):
         answered_html = WorkModule.render_paper(self.paper_html, answers)
         if WorkModule.module_work_submit(self.fxxkstar, answered_html, do_submit=confirm_submit):
             time.sleep(0.2)
-            self.load()
+            if confirm_submit:
+                self.load()  # reload the page to get the result
+                result = WorkModule.parse_paper(self.paper_html)
+                if G_VERBOSE:
+                    print(result)
             return True
         else:
             return False
