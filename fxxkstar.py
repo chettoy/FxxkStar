@@ -412,8 +412,7 @@ class FxxkStar():
 
         url1 = "https://i.chaoxing.com/base/verify"
         parms1 = {"_t": self.format_date_like_javascript()}
-        if G_VERBOSE:
-            print("[INFO] load_profile verify")
+        print("[INFO] load_profile verify")
         result1 = self.request_xhr(url1, {
             "Origin": "https://i.chaoxing.com",
             "Referer": homepage_url,
@@ -423,8 +422,7 @@ class FxxkStar():
                           ": url=" + url1 + "\n" + str(result1))
 
         url2 = "https://i.chaoxing.com/base/settings"
-        if G_VERBOSE:
-            print("[INFO] load_profile settings")
+        print("[INFO] load_profile settings")
         self.request_iframe(url2, {
             "Referer": homepage_url,
         })
@@ -432,8 +430,7 @@ class FxxkStar():
         self.sleep(50, 200)
 
         url3 = "https://passport2.chaoxing.com/mooc/accountManage"
-        if G_VERBOSE:
-            print("[INFO] load_profile accountManage")
+        print("[INFO] load_profile account")
         account_page_html = self.request_iframe(url3, {
             "Referer": "https://i.chaoxing.com/",
         }).text
@@ -892,15 +889,21 @@ class FxxkStarHelper():
             else:
                 if G_VERBOSE:
                     print("attachment_item", attachment_item)
-                    return
 
                 if 'property' in attachment_item:
                     attachment_property = attachment_item['property']
                     if 'module' in attachment_property:
                         module_type = attachment_property['module']
-                        print(module_type)
+                        if module_type == "insertbook":
+                            print("[InsertBook]",
+                                  attachment_property['bookname'])
+                            print("[InsertBook]",
+                                  attachment_property['readurl'])
+                        else:
+                            print(module_type)
                 else:
-                    print("attachment_item", attachment_item)
+                    if not G_VERBOSE:
+                        print("attachment_item", attachment_item)
 
     def deal_chapter(self, chapter_meta: dict) -> None:
         chapter_info = self.fxxkstar.load_chapter(chapter_meta)
@@ -1737,7 +1740,7 @@ if __name__ == "__main__":
         helper.login_if_need()
         helper.show_profile()
         print()
-        time.sleep(2.5)
+        time.sleep(1.5)
 
         helper.load_courses_if_need()
 
@@ -1771,18 +1774,30 @@ if __name__ == "__main__":
             if choose_chapter == "n" or choose_chapter == "next" or choose_chapter == '':
                 choose_chapter = chose_chapter_index + 1
             else:
-                choose_chapter = int(choose_chapter) - 1
+                if choose_chapter.isdigit():
+                    choose_chapter = int(choose_chapter) - 1
+
             print()
-            if 0 <= choose_chapter < unfinished_chapters.__len__():
-                current_chapter = unfinished_chapters[choose_chapter]
-                print()
-                print(
-                    f"🔴 {current_chapter['chapterNumber']} {current_chapter['chapterTitle']}")
-                helper.deal_chapter(current_chapter)
-                print()
-                chose_chapter_index = choose_chapter
+            current_chapter = None
+            if isinstance(choose_chapter, int):
+                if 0 <= choose_chapter < unfinished_chapters.__len__():
+                    current_chapter = unfinished_chapters[choose_chapter]
+                    chose_chapter_index = choose_chapter
+                else:
+                    break
             else:
-                break
+                for chapter in chapters:
+                    if chapter['chapterNumber'] == choose_chapter:
+                        current_chapter = chapter
+                        break
+                if current_chapter is None:
+                    break
+
+            print()
+            print(
+                f"🔴 {current_chapter['chapterNumber']} {current_chapter['chapterTitle']}")
+            helper.deal_chapter(current_chapter)
+            print()
 
         if input(G_STRINGS['input_if_sync_video_progress']) == 'y':
             helper.sync_video_progress()
