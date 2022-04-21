@@ -915,22 +915,28 @@ class FxxkStarHelper():
 
     def sync_video_progress(self, thread_count=3) -> None:
         thread_pool = ThreadPoolExecutor(max_workers=thread_count)
+        future_list: List[Future] = []
 
-        def mission(video_mod: VideoModule):
+        def run_task(video_mod: VideoModule):
             video_report_action(video_mod).run()
+
+        def dispatch_task():
+            def on_done(future: Future):
+                future_list.remove(future)
+                time.sleep(1)
+                dispatch_task()
+            while self.video_to_watch and len(future_list) < thread_count:
+                video_item: VideoModule = self.video_to_watch.pop(0)
+                future = thread_pool.submit(run_task, video_item)
+                future_list.append(future)
+                future.add_done_callback(on_done)
+                time.sleep(1)
 
         print(G_STRINGS['sync_video_progress_started'])
 
-        future_list: List[Future] = []
-        while self.video_to_watch:
-            while self.video_to_watch and len(future_list) < thread_count:
-                video_item: VideoModule = self.video_to_watch.pop(0)
-                future = thread_pool.submit(mission, video_item)
-                future_list.append(future)
-                time.sleep(1)
-            if len(future_list) > 0:
-                future = future_list.pop(0)
-                future.result()
+        dispatch_task()
+        while len(future_list) > 0:
+            future_list[0].result()
 
         thread_pool.shutdown()
         print(G_STRINGS['sync_video_progress_ended'])
