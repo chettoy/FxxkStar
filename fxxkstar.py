@@ -56,6 +56,7 @@ G_HEADERS = {
 
 G_STRINGS = {
     "antispider_verify": "⚠️ Anti-Spider verify",
+    "correct_answer": "Correct answer: ",
     "course_list_title": "Course List",
     "error_please_relogin": "⚠️ Error: Please relogin",
     "error_response": "⚠️ Wrong response from server",
@@ -71,11 +72,13 @@ G_STRINGS = {
     "login_success": "Login success ✅",
     "load_course_list_failed": "Load course list failed",
     "load_course_list_success": "Load course list success",
+    "my_answer": "My Answer: ",
     "press_enter_to_continue": "🔞 Press Enter to continue...",
     "profile_greeting": "🌈 Hello, {name}",
     "profile_student_num": "Student number: {f[0][1]}",
     "ready_to_submit_paper": "✅ Ready to submit paper",
     "save_state_success": "Save state success",
+    "score_format": "Score: {score}",
     "sync_video_progress_started": "Sync video progress started",
     "sync_video_progress_ended": "Sync video progress ended",
     "unfinished_chapters_title": "Unfinished Chapters",
@@ -84,6 +87,7 @@ G_STRINGS = {
 
 G_STRINGS_CN = {
     "antispider_verify": "⚠️ 反蜘蛛验证",
+    "correct_answer": "正确答案: ",
     "course_list_title": "课程列表",
     "error_please_relogin": "⚠️ 请重新登录",
     "error_response": "⚠️ 错误的响应",
@@ -99,11 +103,13 @@ G_STRINGS_CN = {
     "login_success": "登陆成功 ✅",
     "load_course_list_failed": "加载课程列表失败",
     "load_course_list_success": "加载课程列表成功",
+    "my_answer": "我的答案: ",
     "press_enter_to_continue": "🔞 请按回车继续...",
     "profile_greeting": "🌈 您好, {name}",
     "profile_student_num": "学号: {f[0][1]}",
     "ready_to_submit_paper": "✅ 准备提交试卷",
     "save_state_success": "保存状态成功",
+    "score_format": "成绩: {score}",
     "sync_video_progress_started": "同步视频进度开始",
     "sync_video_progress_ended": "同步视频进度结束",
     "unfinished_chapters_title": "未完成章节",
@@ -186,7 +192,7 @@ class MyAgent():
     def build_headers(self) -> dict:
         if self.headers_dirty:
             headers = self.headers.copy()
-            headers["Cookie"] = self.get_cookie_str()
+            headers['Cookie'] = self.get_cookie_str()
             self.headers_cache = headers
             self.headers_dirty = False
             return headers.copy()
@@ -208,9 +214,9 @@ class FxxkStar():
         self.course_dict = {}
         self.course_info = {}
         self.chapter_info = {}
-        if saved_state.__contains__("version") and saved_state["version"] == VERSION_NAME:
+        if saved_state.__contains__("version") and saved_state['version'] == VERSION_NAME:
             if saved_state.get("cookies", None) is not None:
-                self.agent.update_cookies_str(saved_state["cookies"])
+                self.agent.update_cookies_str(saved_state['cookies'])
             if saved_state.get("uid") is not None:
                 self.uid = saved_state.get("uid")
             if saved_state.get("account_info") is not None:
@@ -250,7 +256,7 @@ class FxxkStar():
         }, self.agent.headers_additional_xhr)
         sign_in_rsp = requests.post(url=url, data=data, headers=headers)
         sign_in_json = sign_in_rsp.json()
-        if sign_in_json["status"]:
+        if sign_in_json['status']:
             self.uid = sign_in_rsp.cookies['_uid']
             for item in sign_in_rsp.cookies:
                 self.agent.update_cookie(item.name, item.value)
@@ -301,7 +307,7 @@ class FxxkStar():
         if rsp.status_code == 200:
             # print(rsp.text)
             for item in rsp.cookies:
-                if item.name in ["actix-session"]:
+                if item.name in ['actix-session']:
                     continue
                 self.agent.update_cookie(item.name, item.value)
             return rsp
@@ -345,6 +351,7 @@ class FxxkStar():
             if input['type'] in ('checkbox', 'radio'):
                 value = ''
                 if input.has_attr('checked'):
+                    assert input.get('checked') in ["checked", "true"]
                     if input.has_attr('value'):
                         value = input['value']
                     else:
@@ -563,7 +570,7 @@ class FxxkStar():
                 clazz_id = None
                 chapter_entrance_node = chapter_item.xpath("./@onclick")
                 if chapter_entrance_node.__len__() == 0:
-                    if G_CONFIG["debug"]:
+                    if G_CONFIG['debug']:
                         with open("debug-course-chapters.html", "w") as f:
                             f.write(chapters_HTML_text)
                     pass
@@ -696,7 +703,7 @@ class FxxkStar():
             print("[INFO] load_chapter ==========")
             print("|{unfinishedCount}| {chapterNumber} {chapterTitle} {knowledgeId}".format(
                 **chapter_meta))
-            print(chapter_meta["transferUrl"])
+            print(chapter_meta['transferUrl'])
             print()
 
         chapter_page_url = self.url_302(transfer_url, {
@@ -790,7 +797,7 @@ class FxxkStarHelper():
             self.start_interactive_login(self.fxxkstar)
             time.sleep(2)
             # force reload course list after login
-            G_CONFIG["always_request_course_list"] = True
+            G_CONFIG['always_request_course_list'] = True
         return self.fxxkstar.uid
 
     def show_profile(self) -> dict:
@@ -837,57 +844,65 @@ class FxxkStarHelper():
         print()
         return unfinished_chapters
 
-    def medias_deal(self, card_info: dict, course_id, clazz_id, chapter_id) -> None:
+    def medias_deal(self, card_info: dict, course_id: str, clazz_id: str, chapter_id: str) -> None:
         card_args = card_info['card_args']
         card_url = card_info['card_url']
-        attachments_json = card_args["attachments"]
-        defaults_json = card_args["defaults"]
+        attachments_json = card_args['attachments']
+        defaults_json = card_args['defaults']
 
-        course_id = defaults_json["courseid"] or course_id
-        clazz_id = defaults_json["clazzId"] or clazz_id
-        chapter_id = defaults_json["knowledgeid"] or chapter_id
+        assert str(defaults_json['courseid']) == course_id
+        assert str(defaults_json['clazzId']) == clazz_id
+        assert str(defaults_json['knowledgeid']) == chapter_id
 
         for attachment_item in attachments_json:
             attachment_type = attachment_item.get("type")
 
             if attachment_type == "document":
                 mod = DocumentModule(self.fxxkstar, attachment_item,
-                                     card_args, course_id, clazz_id, chapter_id)
+                                     card_info, course_id, clazz_id, chapter_id)
 
             elif attachment_type == "live":
                 mod = LiveModule(self.fxxkstar, attachment_item,
-                                 card_args, course_id, clazz_id, chapter_id)
+                                 card_info, course_id, clazz_id, chapter_id)
 
             elif attachment_type == "video":
                 mod = VideoModule(self.fxxkstar, attachment_item,
-                                  card_args, course_id, clazz_id, chapter_id)
+                                  card_info, course_id, clazz_id, chapter_id)
 
                 if mod.can_play() and not mod.is_passed:
                     self.video_to_watch.append(mod)
 
             elif attachment_type == "workid":
-                mod = WorkModule(self.fxxkstar, attachment_item=attachment_item, card_args=card_args,
+                mod = WorkModule(self.fxxkstar, attachment_item=attachment_item, card_info=card_info,
                                  course_id=course_id, clazz_id=clazz_id, chapter_id=chapter_id)
-                mod.load()
-                if G_CONFIG["save_paper_to_file"]:
-                    with open(f"temp/work/work_{mod.work_id}.html", "w") as f:
-                        f.write(mod.paper_html)
-                    print("[Work] ", mod.title, mod.work_id, " saved")
 
-                questions = mod.parse_paper(mod.paper_html)
-                if mod.is_marked:
-                    if G_VERBOSE:
-                        print(questions)
+                if mod.paper.is_marked:
+                    WorkModule.review_paper(mod.paper)
                 else:
-                    # uncertain_questions = mod.correct_answers(
-                    #     questions, mod.work_id, card_url)
-                    if G_VERBOSE:
-                        print(questions)
-                    mod.review_questions(questions)
+                    prev_answer_map = {}
+                    for question in mod.paper.questions:
+                        prev_answer_map[question['question_id']
+                                        ] = question.get('answers', [])
+                    uncertain_questions = mod.correct_answers(
+                        mod.paper.questions, mod.work_id, card_url)
+                    mod.review_paper(mod.paper)
                     time.sleep(random.randint(1000, 5000) / 1000)
-                    # confirm_submit = G_CONFIG["auto_submit_work"] and len(
-                    #     uncertain_questions) == 0
-                    # mod.upload_answers(questions, confirm_submit)
+
+                    save_answers = False
+                    for q in mod.paper.questions:
+                        if q.get('correct', None):
+                            q['answers'] = q['correct']
+                        if q.get('answers', []) != prev_answer_map[q['question_id']]:
+                            save_answers = True
+                    if save_answers:
+                        confirm_submit = G_CONFIG['auto_submit_work'] and len(
+                            uncertain_questions) == 0
+                        mod.upload_answers(
+                            mod.paper.questions, confirm_submit)
+                        if mod.paper.is_marked:
+                            mod.review_paper(mod.paper)
+                    elif G_VERBOSE:
+                        print("[Work] ", mod.title, mod.work_id, "no change")
 
             else:
                 if G_VERBOSE:
@@ -950,25 +965,26 @@ class FxxkStarHelper():
 
 
 class AttachmentModule:
-    def __init__(self, fxxkstar: FxxkStar, attachment_item: dict, card_args: dict, course_id, clazz_id, chapter_id):
+    def __init__(self, fxxkstar: FxxkStar, attachment_item: dict, card_info: dict, course_id, clazz_id, chapter_id):
         self.fxxkstar: FxxkStar = fxxkstar
         self.uid: str = fxxkstar.uid
         self.attachment_item: dict = attachment_item
-        self.card_args: dict = card_args
+        self.card_args: dict = card_info['card_args']
+        self.card_url: str = card_info['card_url']
         self.course_id: str = course_id
         self.clazz_id: str = clazz_id
         self.chapter_id: str = chapter_id
         self.mid: str = attachment_item['mid']
-        self.defaults: dict = card_args['defaults']
+        self.defaults: dict = self.card_args['defaults']
         self.job: bool = attachment_item.get("job", False)
         self.module_type: str = attachment_item.get("type")
         self.attachment_property: dict = attachment_item.get("property")
 
 
 class LiveModule(AttachmentModule):
-    def __init__(self, fxxkstar: FxxkStar, attachment_item: dict, card_args: dict, course_id, clazz_id, chapter_id):
+    def __init__(self, fxxkstar: FxxkStar, attachment_item: dict, card_info: dict, course_id, clazz_id, chapter_id):
         super().__init__(fxxkstar, attachment_item,
-                         card_args, course_id, clazz_id, chapter_id)
+                         card_info, course_id, clazz_id, chapter_id)
 
         assert self.module_type == "live"
 
@@ -1059,8 +1075,8 @@ class LiveModule(AttachmentModule):
 
     def get_live_status(self) -> str:
         info_data = self.live_info['temp']['data']
-        live_status = info_data["liveStatus"]
-        if_review = info_data["ifReview"]
+        live_status = info_data['liveStatus']
+        if_review = info_data['ifReview']
         if live_status == 0:
             return 'liveUnplayed'
         elif live_status == 1:
@@ -1072,9 +1088,9 @@ class LiveModule(AttachmentModule):
 
 
 class DocumentModule(AttachmentModule):
-    def __init__(self, fxxkstar: FxxkStar, attachment_item: dict, card_args: dict, course_id, clazz_id, chapter_id):
+    def __init__(self, fxxkstar: FxxkStar, attachment_item: dict, card_info: dict, course_id, clazz_id, chapter_id):
         super().__init__(fxxkstar, attachment_item,
-                         card_args, course_id, clazz_id, chapter_id)
+                         card_info, course_id, clazz_id, chapter_id)
         assert self.module_type == "document"
 
         self.other_info: str = attachment_item.get("otherInfo")
@@ -1120,9 +1136,9 @@ class DocumentModule(AttachmentModule):
 
 
 class VideoModule(AttachmentModule):
-    def __init__(self, fxxkstar: FxxkStar, attachment_item: dict, card_args: dict, course_id, clazz_id, chapter_id):
+    def __init__(self, fxxkstar: FxxkStar, attachment_item: dict, card_info: dict, course_id, clazz_id, chapter_id):
         super().__init__(fxxkstar, attachment_item,
-                         card_args, course_id, clazz_id, chapter_id)
+                         card_info, course_id, clazz_id, chapter_id)
         assert self.module_type == "video"
 
         self.object_id: str = attachment_item.get("objectId")
@@ -1192,9 +1208,9 @@ class VideoModule(AttachmentModule):
 
 class WorkModule(AttachmentModule):
     # module/work/index.html?v=2021-0927-1700
-    def __init__(self, fxxkstar: FxxkStar, attachment_item: dict, card_args: dict, course_id, clazz_id, chapter_id):
+    def __init__(self, fxxkstar: FxxkStar, attachment_item: dict, card_info: dict, course_id: str, clazz_id: str, chapter_id: str):
         super().__init__(fxxkstar, attachment_item,
-                         card_args, course_id, clazz_id, chapter_id)
+                         card_info, course_id, clazz_id, chapter_id)
         assert self.module_type == "workid"
 
         self.work_id = self.attachment_property['workid']
@@ -1202,7 +1218,17 @@ class WorkModule(AttachmentModule):
         self.title = self.attachment_property['title']
         print("[WorkModule] ", self.title, self.work_id)
 
-    def load(self):
+        self.paper_html = self._load()
+        if G_CONFIG['save_paper_to_file']:
+            with open(f"temp/work/work_{self.work_id}.html", "w") as f:
+                f.write(self.paper_html)
+            print("[Work] ", self.title, self.work_id, " saved")
+
+        self.paper = self.parse_paper(self.paper_html)
+        self._answers.save(
+            fxxkstar, self.paper.questions, self.work_id, self.card_url)
+
+    def _load(self):
         chapter_key = self.fxxkstar.key_chapter(
             self.course_id, self.clazz_id, self.chapter_id)
         chapter_info: dict = self.fxxkstar.chapter_info[chapter_key]
@@ -1262,12 +1288,15 @@ class WorkModule(AttachmentModule):
         work_HTML_text = self.fxxkstar.request(src3, headers).text
         if G_VERBOSE:
             print()
-        self.is_marked = "selectWorkQuestionYiPiYue" in src3
-        self.paper_html = work_HTML_text
         return work_HTML_text
 
+    class PaperInfo:
+        is_marked: bool
+        score: int = -1
+        questions: List[dict] = []
+
     @staticmethod
-    def parse_paper(paper_page_html: str) -> List[dict]:
+    def parse_paper(paper_page_html: str) -> PaperInfo:
         "Parsing the questions and answers in the page html into dict"
 
         soup = BeautifulSoup(paper_page_html, "lxml")
@@ -1309,12 +1338,19 @@ class WorkModule(AttachmentModule):
                 "topic": question_title,
                 "type": question_type,  # choice: 0, multiple: 1, fill: 2, judge: 3, short: 4
                 "options": None,  # type: List[dict], may not exist
-                "correct": None,  # correct options, only available if marked
-                "wrong": None,  # wrong options, only available if marked
-                "answer": None,  # answer string, only available if marked
-                "is_correct": None,  # is_correct, only available if marked
-                "correct_answer": None,  # correct answer string, only available if marked, may not exist
-                "question_id": None,  # question id, only available if not finished
+                "answers": None,  # type: List[dict], may not exist
+
+                # only available if marked
+                # correct options, type: List[dict], may not exist
+                "correct": None,
+                # wrong options, type: List[dict], may not exist
+                "wrong": None,
+                "answer": None,  # answer string, type: str, may not exist
+                "is_correct": None,  # is_correct, type: bool
+                "correct_answer": None,  # correct answer string, may not exist
+
+                # only available if not marked
+                "question_id": None,  # question id
             }
 
             if not marked:  # parse question_id
@@ -1322,7 +1358,7 @@ class WorkModule(AttachmentModule):
                     "input", id=re.compile("answertype"))
                 assert question_type == int(answertype_node.get("value"))
                 question_id = answertype_node.get("id")[10:]
-                question["question_id"] = question_id
+                question['question_id'] = question_id
             else:  # parse answer
                 answer_el = question_div.select(".Py_answer")[0]
 
@@ -1331,9 +1367,9 @@ class WorkModule(AttachmentModule):
                     answer_mark_classlist: list = answer_mark_el[0].get(
                         "class")
                     if "dui" in answer_mark_classlist:
-                        question["is_correct"] = True
+                        question['is_correct'] = True
                     elif "cuo" in answer_mark_classlist:
-                        question["is_correct"] = False
+                        question['is_correct'] = False
                     else:
                         print("[WARN] module_work, parse_paper, unexpected answer_mark_classlist:",
                               answer_mark_classlist)
@@ -1342,7 +1378,7 @@ class WorkModule(AttachmentModule):
                 answer_result_el = answer_el.select("span")
                 answer: str = answer_result_el[0].text.strip()
                 if answer.startswith("正确答案："):
-                    question["correct_answer"] = answer[len("正确答案："):].strip()
+                    question['correct_answer'] = answer[len("正确答案："):].strip()
                     assert len(answer_result_el) > 2
                     answer = answer_result_el[1].text.strip()
                     assert answer.startswith("我的答案：")
@@ -1350,7 +1386,7 @@ class WorkModule(AttachmentModule):
                     pass
                 else:
                     assert False
-                question["answer"] = answer[len("我的答案："):].strip()
+                question['answer'] = answer[len("我的答案："):].strip()
 
             # parse options
             if question_type == 0 or question_type == 1:  # Choice
@@ -1371,17 +1407,17 @@ class WorkModule(AttachmentModule):
 
                     not_selected = []
                     for option_info in options:
-                        if option_info["option"] in question["answer"]:
+                        if option_info['option'] in question['answer']:
                             selected.append(option_info)
                         else:
                             not_selected.append(option_info)
-                    if question["is_correct"] is not None:
-                        if question["is_correct"] == True:
-                            question["correct"] = selected
+                    if question['is_correct'] is not None:
+                        if question['is_correct'] == True:
+                            question['correct'] = selected
                         elif question_type == 0:
-                            question["wrong"] = selected
+                            question['wrong'] = selected
 
-                    assert len(selected) == len(question["answer"])
+                    assert len(selected) == len(question['answer'])
                 else:
                     for option_node in option_nodes:
                         option_input_node = option_node.select(
@@ -1391,7 +1427,7 @@ class WorkModule(AttachmentModule):
                             0].text.strip()
                         option_info = {"option": option, "content": content}
                         options.append(option_info)
-                        if option_input_node.get("checked") == "true":
+                        if option_input_node.get("checked") in ["true", "checked"]:
                             selected.append(option_info)
                 question['options'] = options
                 if selected.__len__() > 0:
@@ -1400,18 +1436,18 @@ class WorkModule(AttachmentModule):
             elif question_type == 3:  # Judge
                 selected = []
                 if marked:
-                    answer = question["answer"]
+                    answer = question['answer']
                     assert answer == "√" or answer == "×"
                     if answer == "√":
                         selected.append({"option": True, "content": True})
                     elif answer == "×":
                         selected.append({"option": False, "content": False})
-                    if question["is_correct"] is not None:
-                        if question["is_correct"] == True:
-                            question["correct"] = selected
-                        elif question["is_correct"] == False:
-                            correct_judge = not selected[0]["option"]
-                            question["correct"] = [
+                    if question['is_correct'] is not None:
+                        if question['is_correct'] == True:
+                            question['correct'] = selected
+                        elif question['is_correct'] == False:
+                            correct_judge = not selected[0]['option']
+                            question['correct'] = [
                                 {"option": correct_judge, "content": correct_judge}]
                     assert len(selected) == 1
                 else:
@@ -1419,7 +1455,7 @@ class WorkModule(AttachmentModule):
                         "input", attrs={"name": f"answer{question_id}"})
                     assert len(choices_node) == 2
                     for choice_node in choices_node:
-                        if choice_node.get("checked") == "true":
+                        if choice_node.get("checked") in ["true", "checked"]:
                             judge = choice_node.get("value")
                             assert judge in ["true", "false"]
                             if judge == "true":
@@ -1434,17 +1470,17 @@ class WorkModule(AttachmentModule):
             elif question_type == 2:  # Fill
                 content = None
                 if marked:
-                    content = question["answer"]
+                    content = question['answer']
                 else:
                     content = question_div.find(
                         attrs={"name": f"answer{question_id}"}).get("value")
                 if content:
                     question['answers'] = [{"option": "一", "content": content}]
-                if question["correct_answer"]:
+                if question['correct_answer']:
                     question['correct'] = [
-                        {"option": "一", "content": question["correct_answer"]}]
-                elif question["is_correct"] == True:
-                    question["correct"] = question["answers"]
+                        {"option": "一", "content": question['correct_answer']}]
+                elif question['is_correct'] == True:
+                    question['correct'] = question['answers']
             else:
                 print("not support question type:", question_type)
 
@@ -1455,7 +1491,12 @@ class WorkModule(AttachmentModule):
             for key in empty_properties:
                 del question[key]
             questions.append(question)
-        return questions
+
+        paper_info = WorkModule.PaperInfo()
+        paper_info.is_marked = marked
+        paper_info.score = score
+        paper_info.questions = questions
+        return paper_info
 
     @staticmethod
     def render_paper(paper_page_html: str, questions_state: List[dict]) -> str:
@@ -1506,60 +1547,104 @@ class WorkModule(AttachmentModule):
         return soup.decode()
 
     @staticmethod
-    def review_questions(questions_state: List[dict]) -> None:
-        "Display questions and answers of the question dict"
+    def review_paper(paper: PaperInfo) -> None:
+        "Display the paper in review mode"
+
+        if G_VERBOSE:
+            print(paper.questions)
+
+        if paper.is_marked:
+            score = "💯" if paper.score == 100 else str(paper.score)
+            print(G_STRINGS['score_format'].format(score=score))
+
         SYM_CORRECT = "✔️"  # "√"
         SYM_WRONG = "❌"  # "×"
         print("+" + "-" * 46)
-        for question in questions_state:
+        for question in paper.questions:
             q_type: int = question['type']
             q_topic = question['topic']
-            answers = question.get('answers', None)
+            options = question.get('options', [])
+            answers = question.get('answers', [])
+            correct = question.get('correct', None)
+            wrong = question.get('wrong', None)
 
             print(f"| {q_topic}")
 
-            if answers == None or answers.__len__() == 0:
-                if q_type == 0 or q_type == 1:
-                    for option_node in question['options']:
+            if q_type == 0 or q_type == 1:  # choice
+                answer_options_o = set()
+                for item in answers:
+                    answer_options_o.add(item['option'])
+
+                correct_options_o = set()
+                wrong_options_o = set()
+                if correct != None:
+                    for item in correct:
+                        correct_options_o.add(item['option'])
+                    if q_type == 0:
+                        # Single-choice options are all incorrect except for the correct option
+                        for item in options:
+                            if item['option'] not in correct_options_o:
+                                wrong_options_o.add(item['option'])
+
+                if wrong != None:
+                    for item in wrong:
+                        wrong_options_o.add(item['option'])
+
+                for option_item in options:
+                    sym_mark = ""
+
+                    if option_item['option'] in correct_options_o:
+                        sym_mark = SYM_CORRECT
+                    elif option_item['option'] in wrong_options_o:
+                        sym_mark = SYM_WRONG
+
+                    if option_item['option'] in answer_options_o:
                         print(
-                            f"| {option_node['option']}. {option_node['content']}")
-                else:
-                    print(f"| ")
-            elif q_type == 0:  # single choice
-                answer_option = answers[0]['option']
-                for option_node in question['options']:
-                    if option_node['option'] == answer_option:
-                        print(
-                            f"| {option_node['option']}. {option_node['content']} {SYM_CORRECT}")
+                            f"| [{option_item['option']}] {option_item['content']} {sym_mark}")
                     else:
                         print(
-                            f"| {option_node['option']}. {option_node['content']} {SYM_WRONG}")
-            elif q_type == 1:  # multiple choice
-                checked_value = ""
-                for answer in answers:
-                    checked_value += answer['option']
-                for option_node in question['options']:
-                    if option_node['option'] in checked_value:
-                        print(
-                            f"| {option_node['option']}. {option_node['content']} {SYM_CORRECT}")
-                    else:
-                        print(
-                            f"| {option_node['option']}. {option_node['content']} {SYM_WRONG}")
+                            f"|  {option_item['option']}. {option_item['content']} {sym_mark}")
             elif q_type == 3:  # judgment
-                answer_judgment = answers[0]['option']
-                if answer_judgment == True:
-                    print("| ", SYM_CORRECT)
-                elif answer_judgment == False:
-                    print("| ", SYM_WRONG)
+                answer_str = G_STRINGS['my_answer']
+                if answers != None and len(answers) > 0:
+                    answer_judgment = answers[0]['option']
+                    if answer_judgment == True:
+                        answer_str += SYM_CORRECT
+                    elif answer_judgment == False:
+                        answer_str += SYM_WRONG
                 else:
-                    print(answer_judgment)
-            elif q_type == 2:  # fill in the blank
-                print("| ", answers[0]['content'])
+                    answer_str += "____"
+
+                sym_mark = ""
+                if correct != None and len(correct) > 0:
+                    correct_judgment = correct[0]['option']
+                    if correct_judgment == True:
+                        sym_mark = SYM_CORRECT
+                    elif correct_judgment == False:
+                        sym_mark = SYM_WRONG
+                    else:
+                        assert False
+                if not answers and not correct:
+                    print(f"| ____")
+                else:
+                    print("| ", sym_mark, "\t", answer_str)
+            elif q_type == 2:  # fill
+                if not answers and not correct:
+                    print("| ____")
+                else:
+                    if answers != None and len(answers) > 0:
+                        print("| ", answers[0]['content'])
+                    if correct != None and len(correct) > 0:
+                        print(
+                            "| ", G_STRINGS['correct_answer'], correct[0]['content'])
             else:
                 print("not support question type:", q_type)
 
             print("+" + "-" * 46)
-            time.sleep(random.randint(1200, 1600) / 1000)
+            if paper.is_marked:
+                FxxkStar.sleep(200)
+            else:
+                FxxkStar.sleep(1200, 1600)
         print()
 
     @staticmethod
@@ -1611,6 +1696,26 @@ class WorkModule(AttachmentModule):
         return question
 
     @staticmethod
+    def normalize_topic(topic: str) -> str:
+        "Normalize the topic name"
+
+        topic = topic.strip()
+        translate = [
+            ["，", ","],
+            ["。", "."],
+            ["？", "?"],
+            ["！", "!"],
+            ["：", ":"],
+            ["；", ";"],
+            ["（", "("],
+            ["）", ")"],
+        ]
+        for item in translate:
+            topic = topic.replace(item[0], item[1])
+
+        return topic
+
+    @staticmethod
     def compare_option_content(option_a: dict, option_b: dict) -> bool:
         "Compare the content of two options"
         str1: str = option_a['content']
@@ -1629,31 +1734,20 @@ class WorkModule(AttachmentModule):
             return True
 
         # Uniform punctuation and then compare
-        translate = [
-            ["，", ","],
-            ["。", "."],
-            ["？", "?"],
-            ["！", "!"],
-            ["：", ":"],
-            ["；", ";"],
-            ["（", "("],
-            ["）", ")"],
-        ]
-        for t in translate:
-            str1 = str1.replace(t[0], t[1])
-            str2 = str2.replace(t[0], t[1])
+        str1 = WorkModule.normalize_topic(str1)
+        str2 = WorkModule.normalize_topic(str2)
         if str1 == str2:
             return True
 
         return False
 
     @staticmethod
-    def fix_answers_option(question: dict) -> None:
+    def fix_answers_option(question: dict, key_answers="answers") -> None:
         "Regenerate the answer according to the options of the question"
         if question['type'] not in [0, 1]:
             return
         options = question['options']
-        answers = question['answers']
+        answers = question[key_answers]
         new_answers = []
         for option in options:
             for answer in answers:
@@ -1662,7 +1756,7 @@ class WorkModule(AttachmentModule):
                     break
         if len(new_answers) < len(answers):
             raise MyError(2, "fix answers warning:" + str(question))
-        question['answers'] = new_answers
+        question[key_answers] = new_answers
 
     @staticmethod
     def _validate(fxxkstar: FxxkStar, course_id: str, clazz_id: str, cpi: str) -> bool:
@@ -1686,7 +1780,7 @@ class WorkModule(AttachmentModule):
             return True
         elif status == 3:
             # Normal
-            print(G_STRINGS["ready_to_submit_paper"])
+            print(G_STRINGS['ready_to_submit_paper'])
             return True
         else:
             raise MyError(G_STRINGS['error_response'] +
@@ -1743,18 +1837,137 @@ class WorkModule(AttachmentModule):
         else:
             raise MyError(result['msg'] + " " + rsp_text)
 
+    def correct_answers(self, questions: List[dict], work_id: str, card_url: str) -> List[dict]:
+        "Set correct answers in question dict, return a list of unprocessed questions"
+
+        def apply_result(resp_result: dict, questions: dict) -> None:
+            key_correct_options = "correct"
+            unprocessed_list: List[dict] = []
+            for topic_result in resp_result:
+                index = topic_result['index']
+                result = topic_result['result']
+                topic = questions[index]['topic']
+                prev_answers = questions[index].get(key_correct_options, None)
+
+                def use_prev_answers():
+                    if prev_answers is None:
+                        if key_correct_options in questions[index]:
+                            del questions[index][key_correct_options]
+                    else:
+                        questions[index][key_correct_options] = prev_answers
+                    unprocessed_list.append(questions[index])
+
+                if result and len(result) > 0:
+                    if len(result) > 1:
+                        print(f"{topic} has {len(result)}results")
+                        found_right_result = False
+                        for r in result:
+                            try:
+                                questions[index][key_correct_options] = r['correct']
+                                self.fix_answers_option(
+                                    questions[index], key_correct_options)
+                                found_right_result = True
+                                break
+                            except MyError as e:
+                                use_prev_answers()
+                                pass
+                        if not found_right_result:
+                            if G_VERBOSE:
+                                print(result)
+                            raise MyError(2, f"{topic} has no right result")
+                    else:
+                        questions[index][key_correct_options] = result[0]['correct']
+                        try:
+                            self.fix_answers_option(
+                                questions[index], key_correct_options)
+                        except MyError as e:
+                            use_prev_answers()
+                            print(e)
+                else:
+                    print(f"{topic} no_answer")
+                    unprocessed_list.append(questions[index])
+            return unprocessed_list
+
+        resp_result = self._answers.req(
+            self.fxxkstar, questions, work_id, card_url)
+        unprocessed_list = apply_result(resp_result, questions)
+        if len(unprocessed_list) == 0:
+            return []
+        FxxkStar.sleep(200)
+
+        unprocessed_list2 = []
+        for question in unprocessed_list:
+            result = self._answers.find2(question)
+            if apply_result(result, [question]):
+                unprocessed_list2.append(question)
+            FxxkStar.sleep(500, 1000)
+
+        return unprocessed_list2
+
     def upload_answers(self, answers: List[dict], confirm_submit=False) -> bool:
+        "Save or submit the answers"
+        if G_VERBOSE:
+            print("[INFO] upload_answers, answers=" + str(answers))
         answered_html = WorkModule.render_paper(self.paper_html, answers)
         if WorkModule.module_work_submit(self.fxxkstar, answered_html, do_submit=confirm_submit):
             time.sleep(0.2)
             if confirm_submit:
-                self.load()  # reload the page to get the result
-                result = WorkModule.parse_paper(self.paper_html)
-                if G_VERBOSE:
-                    print(result)
+                self.paper_html = self._load()  # reload the page to get the result
+                self.paper = WorkModule.parse_paper(self.paper_html)
+                WorkModule._answers.save(
+                    self.fxxkstar, self.paper.questions, self.work_id, self.card_url)
             return True
         else:
             return False
+
+    class _answers:
+        @staticmethod
+        def _info(work_id: str, card_url: str):
+            return json.dumps({
+                "refer": card_url,
+                "id": work_id,
+                "info": work_id,
+            })
+
+        @staticmethod
+        def save(fxxkstar: FxxkStar, questions: List[dict], work_id: str, card_url: str) -> None:
+            data = []
+            for item in questions:
+                topic = WorkModule.normalize_topic(item.get('topic'))
+                r_type = WorkModule.chaoxing_type_to_banktype(item.get('type'))
+                correct = item.get('correct', None)
+                wrong = item.get('wrong', None)
+                assert isinstance(topic, str)
+                assert isinstance(r_type, int)
+                if not correct and not wrong:
+                    continue
+                save_item = {
+                    "topic": topic,
+                    "type": r_type,
+                    "correct": correct,
+                    "wrong": wrong,
+                }
+                if not correct:
+                    del save_item['correct']
+                if not wrong:
+                    del save_item['wrong']
+                data.append(save_item)
+
+            serialized_str: str = urllib.parse.urlencode({
+                "info": __class__._info(work_id, card_url),
+                "data": json.dumps(data),
+            })
+            if G_VERBOSE:
+                print("[DEBUG] _answer.save, serialized_str=" + serialized_str)
+            print("answers saved")
+
+        @staticmethod
+        def req(fxxkstar: FxxkStar, questions: List[dict], work_id: str, card_url: str) -> List[dict]:
+            return []
+
+        @staticmethod
+        def find2(question: dict | str) -> list:
+            return []
 
 
 class video_report_action:
@@ -1945,4 +2158,4 @@ if __name__ == "__main__":
     finally:
         if G_CONFIG['save_state'] and fxxkstar is not None:
             save_state_to_file(fxxkstar)
-        input(G_STRINGS["press_enter_to_continue"])
+        input(G_STRINGS['press_enter_to_continue'])
