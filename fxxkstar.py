@@ -16,6 +16,7 @@ import urllib.parse
 from lxml import etree
 from bs4 import BeautifulSoup
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import List
 
 
@@ -882,7 +883,7 @@ class FxxkStarHelper():
                     prev_answer_map = {}
                     for question in mod.paper.questions:
                         prev_answer_map[question['question_id']
-                                        ] = question.get('answers', [])
+                                        ] = question.get('selected', [])
                     uncertain_questions = mod.correct_answers(
                         mod.paper.questions, mod.work_id, card_url)
                     mod.review_paper(mod.paper)
@@ -891,8 +892,8 @@ class FxxkStarHelper():
                     save_answers = False
                     for q in mod.paper.questions:
                         if q.get('correct', None):
-                            q['answers'] = q['correct']
-                        if q.get('answers', []) != prev_answer_map[q['question_id']]:
+                            q['selected'] = q['correct']
+                        if q.get('selected', []) != prev_answer_map[q['question_id']]:
                             save_answers = True
                     if save_answers:
                         confirm_submit = G_CONFIG['auto_submit_work'] and len(
@@ -1213,16 +1214,20 @@ class WorkModule(AttachmentModule):
                          card_info, course_id, clazz_id, chapter_id)
         assert self.module_type == "workid"
 
-        self.work_id = self.attachment_property['workid']
-        self.jobid = self.attachment_property['jobid']
-        self.title = self.attachment_property['title']
+        self.work_id: str = self.attachment_property['workid']
+        self.jobid: str = self.attachment_property['jobid']
+        self.title: str = self.attachment_property['title']
         print("[WorkModule] ", self.title, self.work_id)
 
-        self.paper_html = self._load()
+        self.is_marked: bool = None
+        self.paper_html: str = ""
+        self._load()
         if G_CONFIG['save_paper_to_file']:
-            with open(f"temp/work/work_{self.work_id}.html", "w") as f:
+            suffix = "1" if self.is_marked else ""
+            file_name = f"work_{self.work_id}_{suffix}.html"
+            with open(f"temp/work/{file_name}", "w") as f:
                 f.write(self.paper_html)
-            print("[Work] ", self.title, self.work_id, " saved")
+            print("[Work] ", self.title, file_name, " saved")
 
         self.paper = self.parse_paper(self.paper_html)
         self._answers.save(
@@ -1288,6 +1293,8 @@ class WorkModule(AttachmentModule):
         work_HTML_text = self.fxxkstar.request(src3, headers).text
         if G_VERBOSE:
             print()
+        self.is_marked = "selectWorkQuestionYiPiYue" in src3
+        self.paper_html = work_HTML_text
         return work_HTML_text
 
     class PaperInfo:
@@ -1297,10 +1304,32 @@ class WorkModule(AttachmentModule):
 
     @staticmethod
     def parse_paper(paper_page_html: str) -> PaperInfo:
-        "Parsing the questions and answers in the page html into dict"
+        "Parse the page html"
+
+        @dataclass
+        class OptionItem:
+            option: str
+            content: str
+
+        @dataclass
+        class QuestionItem:
+            topic: str
+            type: int
+            answers: List[OptionItem] | None = None
+            correct: List[OptionItem] | None = None
+            wrong: List[OptionItem] | None = None
+            selected: List[OptionItem] = None
+            question_id: str | None = None
+
+        @dataclass
+        class MarkResultItem:
+            answer: str = ""
+            correct_answer: str | None = None
+            is_correct: bool | None = None
 
         soup = BeautifulSoup(paper_page_html, "lxml")
 
+        # Parse paper status
         top_div = soup.find("div", class_="ZyTop")
         status_el = top_div.select("h3 span")
         status_title = status_el[0].text.strip() if status_el else ''
@@ -1308,21 +1337,26 @@ class WorkModule(AttachmentModule):
         marked = status_title == "已完成"
         score = -1
 
+        # Parse score
         if marked:
             # [ <span style="font-size:16px;top:25px;color:#db2727;padding-left:5px;">已完成</span>,
             #   <span style="font-size:16px;top:25px;float:right;">本次成绩：<span style="color: #000">100</span></span>,
             #   <span style="color: #000">100</span> ]
-            assert len(status_el) == 3
-            score = int(status_el[2].text.strip())
-            assert f"本次成绩：{score}" in status_el[1].text.strip()
+            if len(status_el) == 3:
+                score = int(status_el[2].text.strip())
+                assert f"本次成绩：{score}" in status_el[1].text.strip()
 
+        # Find all question elements
         q_div = soup.find("div", id="ZyBottom")
         question_divs = q_div.find_all("div", class_="TiMu")
-        title_tags = ["【单选题】", "【多选题】", "【填空题】", "【判断题】", "【简答题】"]
+        title_tags = ["【单选题】", "【多选题】", "【填空题】",
+                      "【判断题】", "【简答题】", "【名词解释】", "【论述题】", "【计算题】"]
         questions = []
         for question_div in question_divs:
             question_title = question_div.select(
-                ".Zy_TItle > .clearfix,.Cy_TItle > .clearfix")[0].text.strip()
+                ".Zy_TItle > .clearfix,.Cy_TItle > .clearfix")[0].get_text().strip()
+
+            # parse question_type from tag
             question_tag = ""
             question_type = -1
             for i in range(len(title_tags)):
@@ -1334,64 +1368,61 @@ class WorkModule(AttachmentModule):
             assert question_type >= 0
             assert question_tag in title_tags
 
-            question = {
-                "topic": question_title,
-                "type": question_type,  # choice: 0, multiple: 1, fill: 2, judge: 3, short: 4
-                "options": None,  # type: List[dict], may not exist
-                "answers": None,  # type: List[dict], may not exist
+            # normalize topic title
+            question_title = WorkModule.normalize_topic(question_title)
+            match_score = re.match(
+                "^\s*([\s\S]+?)\s*\(\S+分\)$", question_title)
+            if match_score:
+                question_title = match_score.group(1)
 
-                # only available if marked
-                # correct options, type: List[dict], may not exist
-                "correct": None,
-                # wrong options, type: List[dict], may not exist
-                "wrong": None,
-                "answer": None,  # answer string, type: str, may not exist
-                "is_correct": None,  # is_correct, type: bool
-                "correct_answer": None,  # correct answer string, may not exist
+            question = QuestionItem(question_title, question_type)
+            mark_result = MarkResultItem()
 
-                # only available if not marked
-                "question_id": None,  # question id
-            }
-
-            if not marked:  # parse question_id
+            if not marked:
+                # parse question_id and verify question_type
                 answertype_node = question_div.find(
                     "input", id=re.compile("answertype"))
-                assert question_type == int(answertype_node.get("value"))
+                assert question.type == int(answertype_node.get("value"))
                 question_id = answertype_node.get("id")[10:]
-                question['question_id'] = question_id
-            else:  # parse answer
-                answer_el = question_div.select(".Py_answer")[0]
+                question.question_id = question_id
 
-                answer_mark_el = answer_el.select("i.fr")
-                if answer_mark_el:
-                    answer_mark_classlist: list = answer_mark_el[0].get(
-                        "class")
-                    if "dui" in answer_mark_classlist:
-                        question['is_correct'] = True
-                    elif "cuo" in answer_mark_classlist:
-                        question['is_correct'] = False
+            else:
+                # parse my answer and correct answer
+                if question.type != 2:  # Fill in the blanks has multiple results
+                    answer_el = question_div.select(".Py_answer")[0]
+                    answer_mark_el = answer_el.select("i.fr")
+                    if answer_mark_el:
+                        answer_mark_classlist: list = answer_mark_el[0].get(
+                            "class")
+                        if "dui" in answer_mark_classlist:
+                            mark_result.is_correct = True
+                        elif "cuo" in answer_mark_classlist:
+                            mark_result.is_correct = False
+                        else:
+                            assert False
+                    answer_result_el = answer_el.select("span")
+                    assert len(answer_result_el) > 0
+                    answer: str = answer_result_el[0].text.strip()
+                    if answer.startswith("正确答案："):
+                        mark_result.correct_answer = answer[len(
+                            "正确答案："):].strip()
+                        assert len(answer_result_el) >= 2
+                        answer = answer_result_el[1].text.strip()
+                        assert answer.startswith("我的答案：")
+                    elif answer.startswith("我的答案："):
+                        pass
                     else:
-                        print("[WARN] module_work, parse_paper, unexpected answer_mark_classlist:",
-                              answer_mark_classlist)
                         assert False
-
-                answer_result_el = answer_el.select("span")
-                answer: str = answer_result_el[0].text.strip()
-                if answer.startswith("正确答案："):
-                    question['correct_answer'] = answer[len("正确答案："):].strip()
-                    assert len(answer_result_el) > 2
-                    answer = answer_result_el[1].text.strip()
-                    assert answer.startswith("我的答案：")
-                elif answer.startswith("我的答案："):
-                    pass
-                else:
-                    assert False
-                question['answer'] = answer[len("我的答案："):].strip()
+                    mark_result.answer = answer[len("我的答案："):].strip()
 
             # parse options
-            if question_type == 0 or question_type == 1:  # Choice
-                options = []
-                selected = []
+
+            # for fill in the blanks
+            index_list = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
+
+            if question.type in [0, 1]:  # Choice
+                options: List[OptionItem] = []
+                selected: List[OptionItem] = []
                 option_nodes = question_div.select("ul.Zy_ulTop li")
 
                 if marked:
@@ -1402,22 +1433,24 @@ class WorkModule(AttachmentModule):
                             "a.fl")[0].text.strip()
                         assert len(option) == 2 and option.endswith("、")  # A、
                         option = option[:-1]
-                        option_info = {"option": option, "content": content}
+                        option_info = OptionItem(option, content)
                         options.append(option_info)
 
-                    not_selected = []
+                    not_selected: List[OptionItem] = []
                     for option_info in options:
-                        if option_info['option'] in question['answer']:
+                        if option_info.option in mark_result.answer:
                             selected.append(option_info)
                         else:
                             not_selected.append(option_info)
-                    if question['is_correct'] is not None:
-                        if question['is_correct'] == True:
-                            question['correct'] = selected
-                        elif question_type == 0:
-                            question['wrong'] = selected
 
-                    assert len(selected) == len(question['answer'])
+                    if mark_result.is_correct is not None:
+                        if mark_result.is_correct:
+                            question.correct = selected
+                        else:
+                            if question.type == 0:
+                                question.wrong = selected
+
+                    assert len(selected) == len(mark_result.answer)
                 else:
                     for option_node in option_nodes:
                         option_input_node = option_node.select(
@@ -1425,72 +1458,152 @@ class WorkModule(AttachmentModule):
                         option = option_input_node.get("value")
                         content = option_node.select("a.fl.after")[
                             0].text.strip()
-                        option_info = {"option": option, "content": content}
+                        option_info = OptionItem(option, content)
                         options.append(option_info)
                         if option_input_node.get("checked") in ["true", "checked"]:
                             selected.append(option_info)
-                question['options'] = options
+                question.answers = options
                 if selected.__len__() > 0:
-                    question['answers'] = selected
+                    question.selected = selected
 
-            elif question_type == 3:  # Judge
-                selected = []
+            elif question.type == 3:  # Judge
+                selected: List[OptionItem] = []
                 if marked:
-                    answer = question['answer']
+                    answer = mark_result.answer
                     assert answer == "√" or answer == "×"
                     if answer == "√":
-                        selected.append({"option": True, "content": True})
+                        selected.append(OptionItem(True, True))
                     elif answer == "×":
-                        selected.append({"option": False, "content": False})
-                    if question['is_correct'] is not None:
-                        if question['is_correct'] == True:
-                            question['correct'] = selected
-                        elif question['is_correct'] == False:
-                            correct_judge = not selected[0]['option']
-                            question['correct'] = [
-                                {"option": correct_judge, "content": correct_judge}]
+                        selected.append(OptionItem(False, False))
+                    if mark_result.is_correct is not None:
+                        if mark_result.is_correct:
+                            question.correct = selected.copy()
+                        else:
+                            correct_judge = not selected[0].option
+                            question.correct = [
+                                OptionItem(correct_judge, correct_judge)
+                            ]
                     assert len(selected) == 1
                 else:
                     choices_node = question_div.find_all(
-                        "input", attrs={"name": f"answer{question_id}"})
+                        "input", attrs={"name": f"answer{question.question_id}"})
                     assert len(choices_node) == 2
                     for choice_node in choices_node:
                         if choice_node.get("checked") in ["true", "checked"]:
                             judge = choice_node.get("value")
                             assert judge in ["true", "false"]
                             if judge == "true":
-                                selected.append(
-                                    {"option": True, "content": True})
+                                selected.append(OptionItem(True, True))
                             elif judge == "false":
-                                selected.append(
-                                    {"option": False, "content": False})
+                                selected.append(OptionItem(False, False))
                             break
                 if len(selected) > 0:
-                    question['answers'] = selected
-            elif question_type == 2:  # Fill
-                content = None
-                if marked:
-                    content = question['answer']
-                else:
-                    content = question_div.find(
-                        attrs={"name": f"answer{question_id}"}).get("value")
-                if content:
-                    question['answers'] = [{"option": "一", "content": content}]
-                if question['correct_answer']:
-                    question['correct'] = [
-                        {"option": "一", "content": question['correct_answer']}]
-                elif question['is_correct'] == True:
-                    question['correct'] = question['answers']
-            else:
-                print("not support question type:", question_type)
+                    question.selected = selected
 
-            empty_properties = []
-            for key in question.keys():
-                if question[key] == None:
-                    empty_properties.append(key)
-            for key in empty_properties:
-                del question[key]
-            questions.append(question)
+            elif question.type == 2:  # Fill in the blanks
+                if marked:
+                    answer_el = question_div.select(".Py_answer")[0]
+                    answer_result_els = answer_el.select(".clearfix")
+                    assert len(answer_result_els) > 0
+
+                    correct_el = question_div.select(".Py_tk")
+                    correct_answer_els = []
+                    if correct_el:
+                        correct_el = correct_el[0]
+                        correct_answer_els = correct_el.select(".clearfix")
+
+                    assert len(correct_answer_els) == 0 or len(
+                        correct_answer_els) == len(answer_result_els)
+
+                    results: List[MarkResultItem] = []
+                    for i, answer_result_el in enumerate(answer_result_els):
+                        answer: str = answer_result_el.text.strip()
+                        result = MarkResultItem(answer)
+
+                        if correct_answer_els:
+                            correct_answer_el = correct_answer_els[i]
+                            result.correct_answer = correct_answer_el.text.strip()
+
+                        answer_mark_el = answer_result_el.select("i.fr")
+                        if answer_mark_el:
+                            answer_mark_classlist: list = answer_mark_el[0].get(
+                                "class")
+                            if "dui" in answer_mark_classlist:
+                                result.is_correct = True
+                            elif "cuo" in answer_mark_classlist:
+                                result.is_correct = False
+                            else:
+                                assert False
+                        results.append(result)
+
+                    current_answers: List[OptionItem] = []
+                    correct_answers: List[OptionItem] = []
+                    for i, result in enumerate(results):
+                        option_item = OptionItem(index_list[i], result.answer)
+                        current_answers.append(option_item)
+                        if result.correct_answer:
+                            correct_answers.append(OptionItem(
+                                index_list[i], result.correct_answer))
+                        elif result.is_correct == True:
+                            correct_answers.append(result)
+                    if len(current_answers) > 0:
+                        question.selected = current_answers
+                    if len(correct_answers) > 0:
+                        question.correct = correct_answers
+
+                else:
+                    current_answers: List[OptionItem] = []
+                    for i in range(11):
+                        input_node = question_div.find(
+                            attrs={"name": f"answerEditor{question.question_id}{i+1}"})
+                        if not input_node:
+                            break
+                        con = input_node.get("value")
+                        if con:
+                            current_answers.append(
+                                OptionItem(index_list[i], con))
+                    assert len(current_answers) <= 10
+                    if current_answers:
+                        question.selected = current_answers
+
+            elif question.type in [4, 5, 6, 7]:  # Short answer
+                content: str = None
+                if marked:
+                    content = mark_result.answer
+                else:
+                    input_node = question_div.find(
+                        attrs={"name": f"answer{question.question_id}"})
+                    if not input_node:
+                        break
+                    content = input_node.get("value")
+
+                if content:
+                    question.selected = [OptionItem("一", content)]
+
+                if mark_result.correct_answer:
+                    question.correct = [
+                        OptionItem("一", mark_result.correct_answer)
+                    ]
+                elif mark_result.is_correct == True:
+                    question.correct = question.selected.copy()
+
+            else:
+                print("not support question type:", question.type)
+
+            question_properties = {}
+            for key, value in question.__dict__.items():
+                if value == None:
+                    continue
+                if isinstance(value, list):
+                    list_dict = []
+                    for item in value:
+                        list_dict.append(item.__dict__ if isinstance(
+                            item, OptionItem) else item)
+                    question_properties[key] = list_dict
+                else:
+                    question_properties[key] = value
+
+            questions.append(question_properties)
 
         paper_info = WorkModule.PaperInfo()
         paper_info.is_marked = marked
@@ -1500,14 +1613,14 @@ class WorkModule(AttachmentModule):
 
     @staticmethod
     def render_paper(paper_page_html: str, questions_state: List[dict]) -> str:
-        "Render the answers in question dict to the page html"
+        "Render the selected answers in question dict to the page html"
         soup = BeautifulSoup(paper_page_html, "lxml")
         form1 = soup.find("form", id="form1")
         for question in questions_state:
             q_type: int = question['type']
             q_id = question['question_id']
             q_topic = question['topic']
-            answers: List[dict] = question.get('answers', [])
+            answers: List[dict] = question.get('selected', [])
             if q_type == 0:  # single choice
                 answer_option = answers[0]['option'] if answers.__len__(
                 ) > 0 else None
@@ -1536,7 +1649,17 @@ class WorkModule(AttachmentModule):
                         option_node['checked'] = "true"
                     else:
                         del option_node['checked']
-            elif q_type == 2:  # fill in the blank
+            elif q_type == 2:  # fill in the blanks
+                count = len(answers)
+                for i in range(0, count):
+                    option_node = form1.find(
+                        attrs={"name": f"answerEditor{q_id}{i+1}"})
+                    assert option_node is not None
+                    if len(answers) > 0:
+                        option_node['value'] = answers[i]['content']
+                    else:
+                        del option_node['value']
+            elif q_type in [4, 5, 6, 7]:  # answer
                 option_node = form1.find_all(attrs={"name": f"answer{q_id}"})
                 if len(answers) > 0:
                     option_node['value'] = answers[0]['content']
@@ -1553,7 +1676,7 @@ class WorkModule(AttachmentModule):
         if G_VERBOSE:
             print(paper.questions)
 
-        if paper.is_marked:
+        if paper.is_marked and paper.score != -1:
             score = "💯" if paper.score == 100 else str(paper.score)
             print(G_STRINGS['score_format'].format(score=score))
 
@@ -1563,8 +1686,8 @@ class WorkModule(AttachmentModule):
         for question in paper.questions:
             q_type: int = question['type']
             q_topic = question['topic']
-            options = question.get('options', [])
-            answers = question.get('answers', [])
+            options = question.get('answers', [])
+            answers = question.get('selected', [])
             correct = question.get('correct', None)
             wrong = question.get('wrong', None)
 
@@ -1628,7 +1751,26 @@ class WorkModule(AttachmentModule):
                     print(f"| ____")
                 else:
                     print("| ", sym_mark, "\t", answer_str)
-            elif q_type == 2:  # fill
+            elif q_type == 2:  # fill in blanks
+                if not answers and not correct:
+                    print("| ____")
+                else:
+                    answer_count = len(answers) if answers else 0
+                    correct_count = len(correct) if correct else 0
+                    max_count = max(answer_count, correct_count)
+                    common_count = min(answer_count, correct_count)
+                    for i in range(max_count):
+                        if i < common_count:
+                            print("| ", answers[i]['content'], "\t",
+                                  G_STRINGS['correct_answer'], correct[i]['content'])
+                        continue
+                        if answer_count > i:
+                            print(
+                                "| ", G_STRINGS['my_answer'], answers[i]['content'])
+                        if correct_count > i:
+                            print(
+                                "| ", G_STRINGS['correct_answer'], correct[i]['content'])
+            elif q_type in [4, 5, 6, 7]:  # fill
                 if not answers and not correct:
                     print("| ____")
                 else:
@@ -1641,9 +1783,7 @@ class WorkModule(AttachmentModule):
                 print("not support question type:", q_type)
 
             print("+" + "-" * 46)
-            if paper.is_marked:
-                FxxkStar.sleep(200)
-            else:
+            if not paper.is_marked:
                 FxxkStar.sleep(1200, 1600)
         print()
 
@@ -1674,25 +1814,27 @@ class WorkModule(AttachmentModule):
 
     @staticmethod
     def random_answer(question_state: dict) -> dict:
-        "Randomly generate the answers in the question dict"
+        "Randomly select answers in the question dict"
         question = question_state.copy()
         q_type = question['type']
         answer = []
         if q_type == 0:
-            answer.append(random.choice(question['options']))
+            answer.append(random.choice(question['answers']))
         elif q_type == 1:
-            for option in question['options']:
+            for option in question['answers']:
                 if random.random() > 0.5:
                     answer.append(option)
-        elif q_type == 2 or q_type == 4:
-            answer.append({"option": "一", "content": ""})
+        elif q_type == 2:
+            answer.append({"option": "一", "content": "test2"})
         elif q_type == 3:
             judgement_options = [
                 {"option": True, "content": True},
                 {"option": False, "content": False}
             ]
             answer.append(random.choice(judgement_options))
-        question['answers'] = answer
+        elif q_type in [4, 5, 6, 7]:
+            answer.append({"option": "一", "content": "test"})
+        question['selected'] = answer
         return question
 
     @staticmethod
@@ -1709,9 +1851,24 @@ class WorkModule(AttachmentModule):
             ["；", ";"],
             ["（", "("],
             ["）", ")"],
+            ["～", "~"],
+            ["‘", "'"],
+            ["’", "'"],
+            ["“", "\""],
+            ["”", "\""],
+            ["－", "-"],
+            ["／", "/"],
+            ["＝", "="],
+            ["＜", "<"],
+            ["＞", ">"],
+            ["＊", "*"],
+            ["＋", "+"],
+            ["％", "%"],
         ]
         for item in translate:
             topic = topic.replace(item[0], item[1])
+
+        topic = re.sub("\s+", " ", topic).strip()
 
         return topic
 
@@ -1742,11 +1899,11 @@ class WorkModule(AttachmentModule):
         return False
 
     @staticmethod
-    def fix_answers_option(question: dict, key_answers="answers") -> None:
+    def fix_answers_option(question: dict, key_answers='selected') -> None:
         "Regenerate the answer according to the options of the question"
         if question['type'] not in [0, 1]:
             return
-        options = question['options']
+        options = question['answers']
         answers = question[key_answers]
         new_answers = []
         for option in options:
@@ -1912,7 +2069,7 @@ class WorkModule(AttachmentModule):
         if WorkModule.module_work_submit(self.fxxkstar, answered_html, do_submit=confirm_submit):
             time.sleep(0.2)
             if confirm_submit:
-                self.paper_html = self._load()  # reload the page to get the result
+                self._load()  # reload the page to get the result
                 self.paper = WorkModule.parse_paper(self.paper_html)
                 WorkModule._answers.save(
                     self.fxxkstar, self.paper.questions, self.work_id, self.card_url)
@@ -1933,7 +2090,7 @@ class WorkModule(AttachmentModule):
         def save(fxxkstar: FxxkStar, questions: List[dict], work_id: str, card_url: str) -> None:
             data = []
             for item in questions:
-                topic = WorkModule.normalize_topic(item.get('topic'))
+                topic = item.get('topic')
                 r_type = WorkModule.chaoxing_type_to_banktype(item.get('type'))
                 correct = item.get('correct', None)
                 wrong = item.get('wrong', None)
