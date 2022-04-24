@@ -74,12 +74,21 @@ G_STRINGS = {
     "load_course_list_failed": "Load course list failed",
     "load_course_list_success": "Load course list success",
     "my_answer": "My Answer: ",
+    "notification": "💬 Notification",
     "press_enter_to_continue": "🔞 Press Enter to continue...",
     "profile_greeting": "🌈 Hello, {name}",
     "profile_student_num": "Student number: {f[0][1]}",
     "ready_to_submit_paper": "✅ Ready to submit paper",
     "save_state_success": "Save state success",
     "score_format": "Score: {score}",
+    "sign_in_status_unsign": "🔐 Sign in status: Unsigned",
+    "sign_in_status_success": "✅ Sign in status: Success",
+    "sign_in_status_signed_by_teacher": "✅ Sign in status: Signed by teacher",
+    "sign_in_status_personal_leave2": "🔐 Sign in status: Personal leave",
+    "sign_in_status_absence": "🚫 Sign in status absence",
+    "sign_in_status_late": "🚫 Sign in status: Late",
+    "sign_in_status_leave_early": "🚫 Sign in status: Leave early",
+    "sign_in_status_expired": "🚫 Sign in status: Expired",
     "sync_video_progress_started": "Sync video progress started",
     "sync_video_progress_ended": "Sync video progress ended",
     "unfinished_chapters_title": "Unfinished Chapters",
@@ -105,12 +114,21 @@ G_STRINGS_CN = {
     "load_course_list_failed": "加载课程列表失败",
     "load_course_list_success": "加载课程列表成功",
     "my_answer": "我的答案: ",
+    "notification": "💬 通知",
     "press_enter_to_continue": "🔞 请按回车继续...",
     "profile_greeting": "🌈 您好, {name}",
     "profile_student_num": "学号: {f[0][1]}",
     "ready_to_submit_paper": "✅ 准备提交试卷",
     "save_state_success": "保存状态成功",
     "score_format": "成绩: {score}",
+    "sign_in_status_unsign": "🔐 签到状态: 未签到",
+    "sign_in_status_success": "✅ 签到状态: 成功",
+    "sign_in_status_signed_by_teacher": "✅ 签到状态: 老师代签",
+    "sign_in_status_personal_leave2": "🔐 签到状态: 个人请假",
+    "sign_in_status_absence": "🚫 签到状态: 缺勤",
+    "sign_in_status_late": "🚫 签到状态: 迟到",
+    "sign_in_status_leave_early": "🚫 签到状态: 早退",
+    "sign_in_status_expired": "🚫 签到状态: 过期",
     "sync_video_progress_started": "同步视频进度开始",
     "sync_video_progress_ended": "同步视频进度结束",
     "unfinished_chapters_title": "未完成章节",
@@ -211,33 +229,34 @@ class FxxkStar():
     def __init__(self, my_agent: MyAgent, saved_state: dict = {}):
         self.agent = my_agent
         self.uid: str = ""
+        self.homepage_url: str = ""
         self.account_info = {}
         self.course_dict = {}
         self.course_info = {}
         self.chapter_info = {}
+        self.active_info = {}
         if saved_state.__contains__("version") and saved_state['version'] == VERSION_NAME:
             if saved_state.get("cookies", None) is not None:
                 self.agent.update_cookies_str(saved_state['cookies'])
             if saved_state.get("uid") is not None:
                 self.uid = saved_state.get("uid")
-            if saved_state.get("account_info") is not None:
-                self.account_info = saved_state.get("account_info")
-            if saved_state.get("course_dict") is not None:
-                self.course_dict = saved_state.get("course_dict")
-            if saved_state.get("course_info") is not None:
-                self.course_info = saved_state.get("course_info")
-            if saved_state.get("chapter_info") is not None:
-                self.chapter_info = saved_state.get("chapter_info")
+            if saved_state.get("homepage_url") is not None:
+                self.uid = saved_state.get("homepage_url")
+            for prop in ["account_info", "course_dict", "course_info", "chapter_info", "active_info"]:
+                if saved_state.get(prop) is not None:
+                    self.__setattr__(prop, saved_state.get(prop))
 
     def save_state(self) -> dict:
         return {
             "version": VERSION_NAME,
             "cookies": self.agent.get_cookie_str(),
             "uid": self.uid,
+            "homepage_url": self.homepage_url,
             "account_info": self.account_info,
             "course_dict": self.course_dict,
             "course_info": self.course_info,
             "chapter_info": self.chapter_info,
+            "active_info": self.active_info,
         }
 
     def get_agent(self) -> MyAgent:
@@ -409,12 +428,48 @@ class FxxkStar():
         t = datetime.datetime.utcnow() + datetime.timedelta(hours=+8)
         return t.strftime("%a %b %d %Y %H:%M:%S GMT+0800 (中国标准时间)")
 
+    def get_homepage_url(self) -> str:
+        '''
+        Get the homepage url in 10 minutes
+        e.g. https://i.chaoxing.com/base?t=1680307200000
+        '''
+
+        def load_homepage_url():
+            url0 = "https://i.chaoxing.com"
+            homepage_url = self.url_302(url0)
+            homepage_html = self.request_document(homepage_url).text
+            homepage_soup = BeautifulSoup(homepage_html, "lxml")
+            if homepage_soup.find("title").string.strip() != "个人空间":
+                raise MyError(0, G_STRINGS['error_response'] +
+                              ": url=" + homepage_url + "\n" + str(homepage_html))
+            assert homepage_url.startswith("https://i.chaoxing.com/base")
+            self.homepage_url = homepage_url
+            return homepage_url
+
+        if self.homepage_url == "":
+            return load_homepage_url()
+
+        url_parse = urllib.parse.urlparse(self.homepage_url)
+        url_param = urllib.parse.parse_qs(url_parse.query)
+        t = int(url_param.get("t")[0])
+        if t < self.get_time_millis() - 1000 * 60 * 10:
+            return load_homepage_url()
+        else:
+            return self.homepage_url
+
+    def load_notice_count(self) -> int:
+        url = "https://i.chaoxing.com/base/getNoticeCount"
+        parms = {"_t": self.format_date_like_javascript()}
+        resp = self.request_xhr(url, {
+            "Origin": "https://i.chaoxing.com",
+            "Referer": self.get_homepage_url(),
+        }, parms, method="POST")
+        result = resp.json()
+        assert result['status'] == True
+        return result['count']
+
     def load_profile(self) -> dict:
-        url0 = "https://i.chaoxing.com"
-        homepage_url = self.url_302(url0)
-        homepage_html = self.request_document(homepage_url).text
-        homepage_soup = BeautifulSoup(homepage_html, "lxml")
-        assert homepage_soup.find("title").string.strip() == "个人空间"
+        homepage_url = self.get_homepage_url()
 
         self.sleep(500, 700)
 
@@ -473,7 +528,7 @@ class FxxkStar():
         self.account_info = _parse_profile(account_page_html)
         return self.account_info
 
-    def load_courses(self) -> None:
+    def load_course_list(self) -> None:
         url = "https://mooc2-ans.chaoxing.com/visit/courses/list?v=" + \
             str(self.get_time_millis())
 
@@ -540,43 +595,48 @@ class FxxkStar():
         enc = enc_search.group(1)
 
         chapter_list = []
-        course_unit_list = chapters_HTML.xpath("//div[@class='chapter_unit']")
+        chapters_soup = BeautifulSoup(chapters_HTML_text, "lxml")
+        course_unit_list = chapters_soup.select("div.chapter_unit")
         for course_unit in course_unit_list:
-            catalog_name = course_unit.xpath(
-                "./div[@class='chapter_item']/div/div[@class='catalog_name']/span/@title")[0]
+            catalog_name = course_unit.select(
+                "div.chapter_item div div.catalog_name span")[0].get("title")
             print("# ", catalog_name)
-            chapter_items = course_unit.xpath(
-                "./div[@class='catalog_level']/ul/li/div[@class='chapter_item']")
-            if chapter_items.__len__() == 0:
+            chapter_items = course_unit.select(
+                "div.catalog_level ul li div.chapter_item")
+            if len(chapter_items) == 0:
                 if G_VERBOSE:
                     print(" * ", catalog_name, " is empty")
             for chapter_item in chapter_items:
                 # parse chapter number
-                chapter_number_str = chapter_item.xpath(
-                    ".//span[@class='catalog_sbar']")[0].text.strip()
+                chapter_number_str = chapter_item.select(
+                    "span.catalog_sbar")[0].get_text().strip()
 
                 # parse chapter title
                 chapter_title: str
-                chapter_title_node = chapter_item.xpath("./@title")
-                if chapter_title_node.__len__() == 0:
-                    chapter_title = chapter_item.xpath(
-                        ".//div[@class='catalog_name']/text()")[1].strip()
+                chapter_title_node = chapter_item.get("title", None)
+                if chapter_title_node == None:
+                    chapter_title = chapter_item.select(
+                        "div.catalog_name")[0].contents[-1].strip()
                 else:
-                    chapter_title = chapter_title_node[0]
+                    chapter_title = chapter_title_node
 
                 # parse chapter link
                 transfer_url: str = ""
                 course_id = None
                 chapter_id = None
                 clazz_id = None
-                chapter_entrance_node = chapter_item.xpath("./@onclick")
-                if chapter_entrance_node.__len__() == 0:
-                    if G_CONFIG['debug']:
-                        with open("debug-course-chapters.html", "w") as f:
+                chapter_entrance_node = chapter_item.get("onclick", None)
+                if chapter_entrance_node == None:
+                    state_node = chapter_item.select(
+                        "div.catalog_state.icon-dingshi")
+                    if len(state_node) > 0:
+                        # chapter is not opened
+                        pass
+                    elif G_CONFIG['debug']:
+                        with open("temp/debug-course-chapters.html", "w") as f:
                             f.write(chapters_HTML_text)
-                    pass
                 else:
-                    chapter_entrance = chapter_entrance_node[0].strip()
+                    chapter_entrance = chapter_entrance_node.strip()
                     # For example: "toOld('000000000', '000000000', '00000000')"
                     entrance_match = re.match(
                         r"toOld\('(.*?)',\s*'(.*?)',\s*'(.*?)'\)", chapter_entrance)
@@ -597,12 +657,11 @@ class FxxkStar():
                     clazz_id = clazzid
 
                 unfinished_count = 0
-                task_status_HTML = chapter_item.xpath(
-                    ".//div[@class='catalog_task']")[0]
-                task_count_node: list = task_status_HTML.xpath(
-                    "./input[@class='knowledgeJobCount']/@value")
-                if task_count_node.__len__() == 1:
-                    unfinished_count = int(task_count_node[0])
+                task_status_HTML = chapter_item.select("div.catalog_task")[0]
+                task_count_node: list = task_status_HTML.select(
+                    "input.knowledgeJobCount")
+                if len(task_count_node) == 1:
+                    unfinished_count = int(task_count_node[0].get("value"))
 
                 chapter_info = {
                     'chapterNumber': chapter_number_str,
@@ -626,20 +685,7 @@ class FxxkStar():
         print()
         return course_info
 
-    def request_class_detail(self, course_id, clazz_id, course_cpi) -> dict:
-        fid = self.get_agent().get_cookie_value("fid")
-        url = "https://mobilelearn.chaoxing.com/v2/apis/class/getClassDetail?fid={}&courseId={}&classId={}".format(
-            fid, course_id, clazz_id)
-        rsp_text = self.request(url, {
-            "Accept": "application/json, text/plain, */*",
-            "Referer": "https://mobilelearn.chaoxing.com/page/active/stuActiveList?courseid={}&clazzid={}&cpi={}&ut=s&fid={}".format(course_id, clazz_id, course_cpi, fid),
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-        }).text
-        return json.loads(rsp_text)
-
-    def get_chapters(self, index: int | str) -> list:
+    def get_course_by_index(self, index: int | str) -> dict:
         index = str(index)
         course_name = self.course_dict[index][0]
         course_url = self.course_dict[index][1]
@@ -651,14 +697,23 @@ class FxxkStar():
         course_cpi = course_param.get("cpi")[0]
 
         if G_VERBOSE:
-            print("[INFO] get_chapters= [{}]{}".format(course_id, course_name))
+            print("[INFO] get_course= [{}]{}".format(course_id, course_name))
             print(course_url)
             print()
 
         if self.course_info.__contains__(course_id) and G_CONFIG['always_request_course_info'] == False:
-            return self.course_info[course_id]['chapter_list']
+            return self.course_info[course_id]
         else:
-            return self.load_course_info(course_url)['chapter_list']
+            return self.load_course_info(course_url)
+
+    def get_active_mod(self, course_id: str) -> 'ActiveModule':
+        course_info = self.course_info[course_id]
+        clazz_id = course_info['clazzid']
+        cpi = course_info['cpi']
+        mod = ActiveModule(self, course_id, clazz_id, cpi)
+        info_key = f"{course_id}_{clazz_id}"
+        self.active_info[info_key] = mod.load_active_list()
+        return mod
 
     def read_cardcount(self, chapter_page_url: str,
                        course_id: str, clazz_id: str, chapter_id: str, course_cpi: str) -> int:
@@ -775,6 +830,230 @@ class FxxkStar():
         return "app" if ("ChaoXingStudy" in self.agent.headers['User-Agent']) else "pc"
 
 
+class ActiveModule:
+    def __init__(self, fxxkstar: FxxkStar, course_id: str, clazz_id: str, course_cpi: str):
+        self.fxxkstar: FxxkStar = fxxkstar
+        self.fid: str = self.fxxkstar.get_agent().get_cookie_value("fid")
+        self.course_id: str = course_id
+        self.clazz_id: str = clazz_id
+        self.course_cpi: str = course_cpi
+        self.referer: str = "https://mobilelearn.chaoxing.com/page/active/stuActiveList" + \
+            "?courseid={}&clazzid={}&cpi={}&ut=s&fid={}".format(
+                self.course_id, self.clazz_id, self.course_cpi, self.fid)
+        self.active_list: List[dict] = []
+        self.active_list1: List[dict] = []
+        self.active_list2: List[dict] = []
+        self.class_obj: dict = {}
+
+    def load_active_list(self) -> List[dict]:
+        url = "https://mobilelearn.chaoxing.com/v2/apis/active/student/activelist" + \
+            f"?fid={self.fid}&courseId={self.course_id}&classId={self.clazz_id}&_={self.fxxkstar.get_time_millis()}"
+        rsp_data = self.fxxkstar.request_xhr(url, {  # jquery xhr
+            "Accept": "application/json, text/plain, */*",
+            "Referer": self.referer,
+        }).json()
+        self.check_response("load_active_list", rsp_data)
+
+        data = rsp_data['data']
+        result_list = data.get('activeList', [])
+        for item in result_list:
+            self.active_list.append(item)
+            if 'status' in item and item['status'] == 1:
+                self.active_list1.append(item)
+            else:
+                self.active_list2.append(item)
+
+        reading_duration = data.get('readingDuration', 0)
+        if reading_duration > 0:
+            ext = data['ext']
+            ext_from = ext['_from_']
+        return self.active_list
+
+    def load_class_info(self) -> None:
+        url = "/v2/apis/class/getClassDetail" + \
+            f"?fid={self.fid}&courseId={self.course_id}&classId={self.clazz_id}"
+        rsp_data = self.api_get(url)
+        self.check_response("load_class_info", rsp_data)
+        self.class_obj = rsp_data['data']
+
+    def load_topic_and_work_url(self) -> List[str]:
+        url = "/v2/apis/class/getTopicAndWorkUrl?DB_STRATEGY=DEFAULT" + \
+            f"&fid={self.fid}&courseId={self.course_id}&classId={self.clazz_id}&cpi={self.course_cpi}"
+        rsp_data = self.api_get(url)
+        self.check_response("load_topic_and_work_url", rsp_data)
+        data = rsp_data['data']
+        topic_icon_url = data['topicUrl']
+        work_icon_url = data['workUrl']
+        return [topic_icon_url, work_icon_url]
+
+    def update_is_look(self, active_id) -> None:
+        url = "/ppt/taskAPI/updateIsLook" + \
+            f"?activeId={active_id}&uid={self.fxxkstar.uid}"
+        rsp_data = self.api_get(url)
+        self.check_response(f"update_is_look={active_id}", rsp_data)
+        active = self.get_active(active_id)
+        if active:
+            active['isLook'] = 1
+
+    def get_active(self, active_id: str) -> dict | None:
+        for active in self.active_list:
+            if str(active['id']) == str(active_id):
+                return active
+        return None
+
+    def time_format(self, millis_timestamp) -> str:
+        t = datetime.datetime.fromtimestamp(millis_timestamp / 1000)
+        year = t.year
+        current_year = datetime.datetime.now().year
+        if year == current_year:
+            return t.strftime("%m-%d %H:%M")
+        else:
+            return t.strftime("%Y-%m-%d %H:%M")
+
+    def deal_active(self, active_id: str | int) -> None:
+        active_id = str(active_id)
+        active = self.get_active(active_id)
+        if not active:
+            return
+        active_type = active['activeType']
+        is_look = active.get('isLook', 0) == 1
+        if active_type == 2:  # check in
+            if not is_look or G_CONFIG['test'] == True:
+                if SignInModule(self, active_id).deal_sign_in():
+                    FxxkStar.sleep(100, 200)
+                    if not is_look:
+                        self.update_is_look(active_id)
+        elif active_type == 64:  # tencent meeting
+            info = json.loads(active['content'])
+            start_time = info['startTime']
+            subject = info['topic']
+            assert info['data']['subject'] == subject
+            meeting_code = info['data']['meeting_code']
+
+            print(f"[VooV] {start_time} {subject} {meeting_code}")
+
+    def api_get(self, url: str) -> dict:
+        if url.startswith("/"):
+            url = "https://mobilelearn.chaoxing.com" + url
+        return self.fxxkstar.request(url, {
+            "Accept": "application/json, text/plain, */*",
+            "Referer": self.referer,
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+        }).json()
+
+    def check_response(self, tag: str, rsp_data: dict) -> None:
+        if rsp_data['result'] != 1:
+            # rsp_data['errorMsg']
+            raise MyError(1, G_STRINGS['error_response'] +
+                          f", {tag}: {str(rsp_data)}")
+
+
+class SignInModule:
+    def __init__(self, active_context: ActiveModule, active_id: str) -> None:
+        self.context: ActiveModule = active_context
+        self.active_id: str = active_id
+        self.fxxkstar: FxxkStar = self.context.fxxkstar
+        self.active: dict = self.context.get_active(self.active_id)
+        self.course_id: str = self.context.course_id
+        self.clazz_id: str = self.context.clazz_id
+        self.course_cpi: str = self.context.course_cpi
+        self.fid: str = self.context.fid
+        self.referer: str = "https://mobilelearn.chaoxing.com/page/sign/signIn" + \
+            "?courseId={}&classId={}&activeId={}&fid={}".format(
+                self.course_id, self.clazz_id, self.active_id, self.fid)
+        self.active_info: dict = None
+        self.attend_info: dict = None
+
+    def load_active_info(self) -> None:
+        url = "/v2/apis/active/getPPTActiveInfo" + \
+            "?activeId=" + self.active_id
+        rsp_data = self.api_get(url)
+        self.context.check_response("load_active_info", rsp_data)
+        data = rsp_data['data']
+        self.active_info = data
+
+    def load_attend_info(self) -> None:
+        url = "/v2/apis/sign/getAttendInfo" + \
+            "?activeId=" + self.active_id
+        rsp_data = self.api_get(url)
+        self.context.check_response("load_attend_info", rsp_data)
+        attend = rsp_data['data']
+        self.attend_info = attend
+
+    def deal_sign_status(self, status: int) -> str:
+        if status == 0:
+            return G_STRINGS['sign_in_status_unsign']
+        elif status == 1:
+            return G_STRINGS['sign_in_status_success']
+        elif status == 2:
+            return G_STRINGS['sign_in_status_signed_by_teacher']
+        elif status == 4:
+            return G_STRINGS['sign_in_status_personal_leave2']
+        elif status == 5:
+            return G_STRINGS['sign_in_status_absence']
+        elif status == 9:
+            return G_STRINGS['sign_in_status_late']
+        elif status == 10:
+            return G_STRINGS['sign_in_status_leave_early']
+        elif status == 11:
+            return G_STRINGS['sign_in_status_expired']
+        else:
+            return f"sign[{status}]"
+
+    def _sign_in(self) -> None:
+        url = "/v2/apis/sign/signIn" + \
+            "?activeId=" + self.active_id
+        rsp_data = self.api_get(url)
+        self.context.check_response("sign_in", rsp_data)
+
+    def api_get(self, url: str) -> dict:
+        if url.startswith("/"):
+            url = "https://mobilelearn.chaoxing.com" + url
+        return self.fxxkstar.request_xhr(url, {
+            "Accept": "application/json, text/plain, */*",
+            "Referer": self.referer,
+        }).json()
+
+    def print_active_info(self) -> None:
+        if not self.active_info:
+            return
+        other_id = self.active_info['otherId']
+        if other_id == 2:
+            print("[SignIn] QR code sign in")
+        elif other_id == 3:
+            print("[SignIn] Gesture sign in")
+        elif other_id == 4:
+            print("[SignIn] Location sign in")
+        elif other_id == 5:
+            print("[SignIn] Code sign in")
+        else:
+            print(f"[SignIn] [{other_id}] sign in")
+
+        now_time = self.active_info['nowTime']
+        end_time = self.active_info['endTime']
+        print("-->", self.context.time_format(end_time), "|")
+
+    def deal_sign_in(self) -> bool:
+        self.load_active_info()
+        self.print_active_info()
+        self.load_attend_info()
+        assert self.active_info != None
+        assert self.attend_info != None
+
+        status = self.attend_info['status']
+        print(self.deal_sign_status(status))
+        if status == 1:
+            return True
+        if self.active_info['otherId'] == 0 and status == 0:
+            if self.active_info['ifphoto'] == 0:
+                self._sign_in()
+                FxxkStar.sleep(100, 200)
+                return self.deal_sign_in()  # reload
+        return False
+
+
 class FxxkStarHelper():
     def __init__(self, fxxkstar: FxxkStar):
         self.fxxkstar = fxxkstar
@@ -811,7 +1090,7 @@ class FxxkStarHelper():
 
     def load_courses_if_need(self) -> dict:
         if self.fxxkstar.course_dict == {} or G_CONFIG['always_request_course_list']:
-            self.fxxkstar.load_courses()
+            self.fxxkstar.load_course_list()
             print(G_STRINGS['load_course_list_success'])
             time.sleep(3)
         return self.fxxkstar.course_dict
@@ -988,6 +1267,7 @@ class LiveModule(AttachmentModule):
                          card_info, course_id, clazz_id, chapter_id)
 
         assert self.module_type == "live"
+        self.module_url = "https://mooc1.chaoxing.com/ananas/modules/live/index.html?v=2022-0324-1900"
 
         self.live_set_enc = self.attachment_item['liveSetEnc']
         self.job_id = self.attachment_item['jobid']
@@ -1019,12 +1299,12 @@ class LiveModule(AttachmentModule):
         vdoid = self.vdoid
         user_id = self.uid
 
-        def setLiveANDCourseRelation(self) -> dict:
+        def setLiveANDCourseRelation() -> dict:
             relation_url = "https://mooc1.chaoxing.com" + \
                 f"/ananas/live/relation?courseid={course_id}&knowledgeid={chapter_id}&ut=s&jobid={job_id}&aid={a_id}"
             resp1 = fxxkstar.request_xhr(relation_url, {
                 "Accept": "application/json, text/javascript, */*; q=0.01",
-                "Referer": "https://mooc1.chaoxing.com/ananas/modules/live/index.html?v=2022-0324-1900"
+                "Referer": self.module_url,
             })
             if G_VERBOSE:
                 print(resp1.text)
@@ -1036,7 +1316,7 @@ class LiveModule(AttachmentModule):
                 liveid, user_id, clazz_id, chapter_id, course_id, job_id)
             rsp = fxxkstar.request_xhr(url, {
                 "Accept": "application/json, text/javascript, */*; q=0.01",
-                "Referer": "https://mooc1.chaoxing.com/ananas/modules/live/index.html?v=2022-0324-1900"
+                "Referer": self.module_url,
             }, method="GET")
             rsp_data = json.loads(rsp.text)
             if rsp_data['status'] == True:
@@ -1052,7 +1332,7 @@ class LiveModule(AttachmentModule):
                 print(url)
 
             rsp = fxxkstar.request_iframe(url, {
-                "Referer": "https://mooc1.chaoxing.com/ananas/modules/live/index.html?v=2022-0324-1900"
+                "Referer": self.module_url
             })
             raise MyError(1, f"liveid={liveid} no_vdoid ###" + rsp.text)
 
@@ -2250,17 +2530,38 @@ if __name__ == "__main__":
         helper.print_course_list()
         choose_course = input(G_STRINGS['input_course_num'])
         print()
-        chapters = fxxkstar.get_chapters(choose_course)
+
+        course = fxxkstar.get_course_by_index(choose_course)
+        active_mod = fxxkstar.get_active_mod(course['courseid'])
+        print()
+        active_list = []
+        for active in active_mod.active_list:
+            if active['isLook'] == 1:
+                continue
+            active_list.append(active)
+        if G_CONFIG['test'] == True:
+            active_list = active_mod.active_list.copy()
+        if len(active_list) > 0:
+            print(G_STRINGS['notification'])
+            print("-" * 20)
+            for active in active_list:
+                print("* [%s] %s" % (active['nameFour'], active['nameOne']))
+                active_mod.deal_active(active['id'])
+                time.sleep(0.5)
+            print("-" * 20)
+        print()
         time.sleep(2)
 
+        chapters = course['chapter_list']
         unfinished_chapters = helper.select_unfinished_chapters(chapters)
         time.sleep(2)
 
         chose_chapter_index = -1
+        autotest = False
         while True:
             choose_chapter = ''
 
-            if G_CONFIG['test']:
+            if autotest:
                 time.sleep(random.randint(1000, 5000) / 1000)
             else:
                 choose_chapter = input(G_STRINGS['input_chapter_num']).strip()
@@ -2268,7 +2569,7 @@ if __name__ == "__main__":
             if choose_chapter == 'q' or choose_chapter == 'Q':
                 break
             if choose_chapter == 'autotest':
-                G_CONFIG['test'] = True
+                autotest = True
                 choose_chapter = "next"
 
             if choose_chapter == "n" or choose_chapter == "next" or choose_chapter == '':
