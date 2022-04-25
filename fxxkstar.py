@@ -13,6 +13,7 @@ import threading
 import time
 import traceback
 import urllib.parse
+import zstandard as zstd
 from lxml import etree
 from bs4 import BeautifulSoup
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -241,7 +242,7 @@ class FxxkStar():
             if saved_state.get("uid") is not None:
                 self.uid = saved_state.get("uid")
             if saved_state.get("homepage_url") is not None:
-                self.uid = saved_state.get("homepage_url")
+                self.homepage_url = saved_state.get("homepage_url")
             for prop in ["account_info", "course_dict", "course_info", "chapter_info", "active_info"]:
                 if saved_state.get(prop) is not None:
                     self.__setattr__(prop, saved_state.get(prop))
@@ -261,6 +262,15 @@ class FxxkStar():
 
     def get_agent(self) -> MyAgent:
         return self.agent
+
+    def check_login(self) -> bool:
+        if self.uid == "":
+            _uid = self.agent.get_cookie_value("_uid")
+            if _uid != "":
+                self.uid = _uid
+            else:
+                return False
+        return True
 
     def sign_in(self, uname: str, password: str):
         url = "https://passport2.chaoxing.com/fanyalogin"
@@ -675,7 +685,7 @@ class FxxkStar():
                 chapter_list.append(chapter_info)
 
                 chapter_mark = unfinished_count if unfinished_count > 3 else [
-                    "🟢", "🟡", "🔴", "🔴"][unfinished_count]
+                    "🟢", "🟡", "🟠", "🔴"][unfinished_count]
                 print(" - {} {} {} [{}]".format(chapter_mark,
                       chapter_number_str, chapter_title, chapter_id))
 
@@ -706,14 +716,27 @@ class FxxkStar():
         else:
             return self.load_course_info(course_url)
 
-    def get_active_mod(self, course_id: str) -> 'ActiveModule':
+    def load_active_mod(self, course_id: str) -> 'ActiveModule':
+        'Refresh active list and return an ActiveModule instance'
+        course_id = str(course_id)
         course_info = self.course_info[course_id]
         clazz_id = course_info['clazzid']
         cpi = course_info['cpi']
         mod = ActiveModule(self, course_id, clazz_id, cpi)
         info_key = f"{course_id}_{clazz_id}"
-        self.active_info[info_key] = mod.load_active_list()
+        if info_key not in self.active_info:
+            self.active_info[info_key] = {}
+        self.active_info[info_key]['activeList'] = mod.load_active_list()
         return mod
+
+    def get_active_cache(self, course_id: str) -> dict:
+        course_id = str(course_id)
+        course_info = self.course_info[course_id]
+        clazz_id = course_info['clazzid']
+        info_key = f"{course_id}_{clazz_id}"
+        if info_key not in self.active_info:
+            self.active_info[info_key] = {}
+        return self.active_info[info_key]
 
     def read_cardcount(self, chapter_page_url: str,
                        course_id: str, clazz_id: str, chapter_id: str, course_cpi: str) -> int:
@@ -845,6 +868,14 @@ class ActiveModule:
         self.active_list2: List[dict] = []
         self.class_obj: dict = {}
 
+    def get_active_list(self) -> List[dict]:
+        if (len(self.active_list) == 0):
+            self.load_active_list()
+        return self.active_list.copy()
+
+    def get_ongoing_active_list(self) -> List[dict]:
+        return self.active_list1.copy()
+
     def load_active_list(self) -> List[dict]:
         url = "https://mobilelearn.chaoxing.com/v2/apis/active/student/activelist" + \
             f"?fid={self.fid}&courseId={self.course_id}&classId={self.clazz_id}&_={self.fxxkstar.get_time_millis()}"
@@ -886,7 +917,7 @@ class ActiveModule:
         work_icon_url = data['workUrl']
         return [topic_icon_url, work_icon_url]
 
-    def update_is_look(self, active_id) -> None:
+    def update_is_look(self, active_id: str | int) -> None:
         url = "/ppt/taskAPI/updateIsLook" + \
             f"?activeId={active_id}&uid={self.fxxkstar.uid}"
         rsp_data = self.api_get(url)
@@ -895,7 +926,7 @@ class ActiveModule:
         if active:
             active['isLook'] = 1
 
-    def get_active(self, active_id: str) -> dict | None:
+    def get_active(self, active_id: str | int) -> dict | None:
         for active in self.active_list:
             if str(active['id']) == str(active_id):
                 return active
@@ -910,6 +941,17 @@ class ActiveModule:
         else:
             return t.strftime("%Y-%m-%d %H:%M")
 
+    def get_active_extra(self, active_id: str | int) -> dict:
+        active_id = str(active_id)
+        active_cache = self.fxxkstar.get_active_cache(self.course_id)
+        key_extra = 'fxxkstar_active_extra'
+        if key_extra not in active_cache:
+            active_cache[key_extra] = {}
+        cache_extra = active_cache[key_extra]
+        if active_id not in cache_extra:
+            cache_extra[active_id] = {}
+        return cache_extra[active_id]
+
     def deal_active(self, active_id: str | int) -> None:
         active_id = str(active_id)
         active = self.get_active(active_id)
@@ -917,12 +959,17 @@ class ActiveModule:
             return
         active_type = active['activeType']
         is_look = active.get('isLook', 0) == 1
+        is_finish = active.get('status', 0) == 2
+        extra_data = self.get_active_extra(active_id)
         if active_type == 2:  # check in
-            if not is_look or G_CONFIG['test'] == True:
+            if extra_data.get('fxxkstar_checkin_status', 0) == 1:
+                return
+            if not is_finish or G_CONFIG['test'] == True:
                 if SignInModule(self, active_id).deal_sign_in():
                     FxxkStar.sleep(100, 200)
                     if not is_look:
                         self.update_is_look(active_id)
+                extra_data['fxxkstar_checkin_status'] = 1
         elif active_type == 64:  # tencent meeting
             info = json.loads(active['content'])
             start_time = info['startTime']
@@ -1035,7 +1082,11 @@ class SignInModule:
         end_time = self.active_info['endTime']
         print("-->", self.context.time_format(end_time), "|")
 
-    def deal_sign_in(self) -> bool:
+    def deal_sign_in(self) -> int:
+        '''
+        Request info and try to sign in, Return status number
+        0: unsign, 1: success, 2: signed by teacher, 11: expired, ...
+        '''
         self.load_active_info()
         self.print_active_info()
         self.load_attend_info()
@@ -1044,204 +1095,13 @@ class SignInModule:
 
         status = self.attend_info['status']
         print(self.deal_sign_status(status))
-        if status == 1:
-            return True
+        if status != 0:
+            return status
         if self.active_info['otherId'] == 0 and status == 0:
             if self.active_info['ifphoto'] == 0:
                 self._sign_in()
                 FxxkStar.sleep(100, 200)
                 return self.deal_sign_in()  # reload
-        return False
-
-
-class FxxkStarHelper():
-    def __init__(self, fxxkstar: FxxkStar):
-        self.fxxkstar = fxxkstar
-        self.unfinished_chapters = []
-        self.video_to_watch = []
-
-    @staticmethod
-    def start_interactive_login(fxxkstar: FxxkStar) -> None:
-        sign_sus = False
-        while sign_sus == False:
-            uname = input(G_STRINGS['input_phone'])
-            password = getpass.getpass(G_STRINGS['input_password'])
-            sign_sus = fxxkstar.sign_in(uname, password)
-            if sign_sus == False:
-                print(G_STRINGS['login_reenter'])
-                print(G_STRINGS['press_enter_to_continue'])
-                input()
-
-    def login_if_need(self) -> str:
-        if self.fxxkstar.get_agent().get_cookie_value("_uid") == "":
-            self.start_interactive_login(self.fxxkstar)
-            time.sleep(2)
-            # force reload course list after login
-            G_CONFIG['always_request_course_list'] = True
-        return self.fxxkstar.uid
-
-    def show_profile(self) -> dict:
-        if self.fxxkstar.account_info == {}:
-            self.fxxkstar.load_profile()
-        profile = self.fxxkstar.account_info
-        print(G_STRINGS['profile_greeting'].format(**profile))
-        print(G_STRINGS['profile_student_num'].format(**profile))
-        return profile
-
-    def load_courses_if_need(self) -> dict:
-        if self.fxxkstar.course_dict == {} or G_CONFIG['always_request_course_list']:
-            self.fxxkstar.load_course_list()
-            print(G_STRINGS['load_course_list_success'])
-            time.sleep(3)
-        return self.fxxkstar.course_dict
-
-    def print_course_list(self) -> dict:
-        course_dict: dict = self.fxxkstar.course_dict
-        title = G_STRINGS['course_list_title']
-        print()
-        print(f"== {title} ==" + "=" * (20 - len(title)))
-        for num in course_dict:
-            course = course_dict[num]
-            print(f"{num} {course[0]}")
-        print("=" * 26)
-        print()
-        return course_dict
-
-    @staticmethod
-    def select_unfinished_chapters(chapters: dict) -> dict:
-        title = G_STRINGS['unfinished_chapters_title']
-        print()
-        print(f"== {title} ==" + "=" * (20 - len(title)))
-        unfinished_chapters = []
-        for chapter in chapters:
-            point_count = chapter['unfinishedCount']
-            if point_count > 0:
-                unfinished_chapters.append(chapter)
-                print("「{}」 {} {}".format(
-                    point_count, chapter['chapterNumber'], chapter['chapterTitle']))
-
-        print("=" * 26)
-        print()
-        return unfinished_chapters
-
-    def medias_deal(self, card_info: dict, course_id: str, clazz_id: str, chapter_id: str) -> None:
-        card_args = card_info['card_args']
-        card_url = card_info['card_url']
-        attachments_json = card_args['attachments']
-        defaults_json = card_args['defaults']
-
-        assert str(defaults_json['courseid']) == course_id
-        assert str(defaults_json['clazzId']) == clazz_id
-        assert str(defaults_json['knowledgeid']) == chapter_id
-
-        for attachment_item in attachments_json:
-            attachment_type = attachment_item.get("type")
-
-            if attachment_type == "document":
-                mod = DocumentModule(self.fxxkstar, attachment_item,
-                                     card_info, course_id, clazz_id, chapter_id)
-
-            elif attachment_type == "live":
-                mod = LiveModule(self.fxxkstar, attachment_item,
-                                 card_info, course_id, clazz_id, chapter_id)
-
-            elif attachment_type == "video":
-                mod = VideoModule(self.fxxkstar, attachment_item,
-                                  card_info, course_id, clazz_id, chapter_id)
-
-                if mod.can_play() and not mod.is_passed:
-                    self.video_to_watch.append(mod)
-
-            elif attachment_type == "workid":
-                mod = WorkModule(self.fxxkstar, attachment_item=attachment_item, card_info=card_info,
-                                 course_id=course_id, clazz_id=clazz_id, chapter_id=chapter_id)
-
-                if mod.paper.is_marked:
-                    WorkModule.review_paper(mod.paper)
-                else:
-                    prev_answer_map = {}
-                    for question in mod.paper.questions:
-                        prev_answer_map[question['question_id']
-                                        ] = question.get('selected', [])
-                    uncertain_questions = mod.correct_answers(
-                        mod.paper.questions, mod.work_id, card_url)
-                    mod.review_paper(mod.paper)
-                    time.sleep(random.randint(1000, 5000) / 1000)
-
-                    save_answers = False
-                    for q in mod.paper.questions:
-                        if q.get('correct', None):
-                            q['selected'] = q['correct']
-                        if q.get('selected', []) != prev_answer_map[q['question_id']]:
-                            save_answers = True
-                    if save_answers:
-                        confirm_submit = G_CONFIG['auto_submit_work'] and len(
-                            uncertain_questions) == 0
-                        mod.upload_answers(
-                            mod.paper.questions, confirm_submit)
-                        if mod.paper.is_marked:
-                            mod.review_paper(mod.paper)
-                    elif G_VERBOSE:
-                        print("[Work] ", mod.title, mod.work_id, "no change")
-
-            else:
-                if G_VERBOSE:
-                    print("attachment_item", attachment_item)
-
-                if 'property' in attachment_item:
-                    attachment_property = attachment_item['property']
-                    if 'module' in attachment_property:
-                        module_type = attachment_property['module']
-                        if module_type == "insertbook":
-                            print("[InsertBook]",
-                                  attachment_property['bookname'])
-                            print("[InsertBook]",
-                                  attachment_property['readurl'])
-                        else:
-                            print(module_type)
-                else:
-                    if not G_VERBOSE:
-                        print("attachment_item", attachment_item)
-
-    def deal_chapter(self, chapter_meta: dict) -> None:
-        chapter_info = self.fxxkstar.load_chapter(chapter_meta)
-        for num in range(chapter_info['card_count']):
-            time.sleep(random.random() * 2)
-            card_info = chapter_info['cards'][num]
-            self.medias_deal(
-                card_info, chapter_meta['courseid'], chapter_meta['clazzid'], chapter_meta['knowledgeId'])
-
-    def get_cookies(self) -> str:
-        return self.fxxkstar.get_agent().get_cookie_str()
-
-    def sync_video_progress(self, thread_count=3) -> None:
-        thread_pool = ThreadPoolExecutor(max_workers=thread_count)
-        future_list: List[Future] = []
-
-        def run_task(video_mod: VideoModule):
-            video_report_action(video_mod).run()
-
-        def dispatch_task():
-            def on_done(future: Future):
-                future_list.remove(future)
-                time.sleep(1)
-                dispatch_task()
-            while self.video_to_watch and len(future_list) < thread_count:
-                video_item: VideoModule = self.video_to_watch.pop(0)
-                future = thread_pool.submit(run_task, video_item)
-                future_list.append(future)
-                future.add_done_callback(on_done)
-                time.sleep(1)
-
-        print(G_STRINGS['sync_video_progress_started'])
-
-        dispatch_task()
-        while len(future_list) > 0:
-            future_list[0].result()
-
-        thread_pool.shutdown()
-        print(G_STRINGS['sync_video_progress_ended'])
-        print()
 
 
 class AttachmentModule:
@@ -2466,95 +2326,226 @@ class video_report_action:
             print("✅ %s" % (self.video_mod.name))
 
 
-def before_start() -> None:
-    "print some info before start"
-    print()
-    print(G_STRINGS['welcome_message'])
-    print("Repo: https://github.com/chettoy/FxxkStar")
-    print()
-    print("## Acknowledgments --")
-    print("+------------------------------------------------------------+")
-    print("| [chaoxing_tool](https://github.com/liuyunfz/chaoxing_tool) |")
-    print("| [cxmooc-tools](https://github.com/CodFrm/cxmooc-tools)     |")
-    print("| [FxxkSsxx](https://github.com/chettoy/FxxkSsxx)            |")
-    print("+------------------------------------------------------------+")
-    print()
-    input(G_STRINGS['press_enter_to_continue'])
-    print()
+class FxxkStarHelper():
+    def __init__(self, fxxkstar: FxxkStar):
+        self.fxxkstar = fxxkstar
+        self.unfinished_chapters = []
+        self.video_to_watch = []
 
+    @staticmethod
+    def start_interactive_login(fxxkstar: FxxkStar) -> None:
+        sign_sus = False
+        while sign_sus == False:
+            uname = input(G_STRINGS['input_phone'])
+            password = getpass.getpass(G_STRINGS['input_password'])
+            sign_sus = fxxkstar.sign_in(uname, password)
+            if sign_sus == False:
+                print(G_STRINGS['login_reenter'])
+                print(G_STRINGS['press_enter_to_continue'])
+                input()
 
-def read_state_from_file() -> dict:
-    saved_file = open('star.json', 'rb')
-    saved_data = json.loads(saved_file.read())
-    saved_file.close()
-    return saved_data
+    def login_if_need(self) -> str:
+        if self.fxxkstar.check_login() == False:
+            self.start_interactive_login(self.fxxkstar)
+            time.sleep(2)
+            # force reload course list after login
+            G_CONFIG['always_request_course_list'] = True
+        return self.fxxkstar.uid
 
+    def show_profile(self) -> dict:
+        if self.fxxkstar.account_info == {}:
+            self.fxxkstar.load_profile()
+        profile = self.fxxkstar.account_info
+        print(G_STRINGS['profile_greeting'].format(**profile))
+        print(G_STRINGS['profile_student_num'].format(**profile))
+        return profile
 
-def save_state_to_file(fxxkstar: FxxkStar) -> None:
-    save_file = open('star.json', 'w', encoding='utf-8')
-    save_file.write(json.dumps(fxxkstar.save_state(), ensure_ascii=False))
-    save_file.close()
-    print(G_STRINGS['save_state_success'])
+    def load_courses_if_need(self) -> dict:
+        if self.fxxkstar.course_dict == {} or G_CONFIG['always_request_course_list']:
+            self.fxxkstar.load_course_list()
+            print(G_STRINGS['load_course_list_success'])
+            time.sleep(3)
+        return self.fxxkstar.course_dict
 
-
-def prepare() -> FxxkStar:
-    agent = MyAgent(G_HEADERS)
-
-    fxxkstar = None
-    try:
-        saved_data = read_state_from_file()
-        fxxkstar = FxxkStar(agent, saved_data)
-    except FileNotFoundError:
-        fxxkstar = FxxkStar(agent)
-
-    return fxxkstar
-
-
-if __name__ == "__main__":
-    before_start()
-    fxxkstar = None
-    try:
-        fxxkstar = prepare()
-
-        helper = FxxkStarHelper(fxxkstar)
-        helper.login_if_need()
-        helper.show_profile()
+    def print_course_list(self) -> dict:
+        course_dict: dict = self.fxxkstar.course_dict
+        title = G_STRINGS['course_list_title']
         print()
-        time.sleep(1.5)
+        print(f"== {title} ==" + "=" * (20 - len(title)))
+        for num in course_dict:
+            course = course_dict[num]
+            print(f"{num} {course[0]}")
+        print("=" * 26)
+        print()
+        return course_dict
 
-        helper.load_courses_if_need()
+    @staticmethod
+    def select_unfinished_chapters(chapters: dict) -> dict:
+        title = G_STRINGS['unfinished_chapters_title']
+        print()
+        print(f"== {title} ==" + "=" * (20 - len(title)))
+        unfinished_chapters = []
+        for chapter in chapters:
+            point_count = chapter['unfinishedCount']
+            if point_count > 0:
+                unfinished_chapters.append(chapter)
+                print("「{}」 {} {}".format(
+                    point_count, chapter['chapterNumber'], chapter['chapterTitle']))
 
-        if G_CONFIG['save_state'] and fxxkstar is not None:
-            save_state_to_file(fxxkstar)
+        print("=" * 26)
+        print()
+        return unfinished_chapters
 
-        helper.print_course_list()
-        choose_course = input(G_STRINGS['input_course_num'])
+    def medias_deal(self, card_info: dict, course_id: str, clazz_id: str, chapter_id: str) -> None:
+        card_args = card_info['card_args']
+        card_url = card_info['card_url']
+        attachments_json = card_args['attachments']
+        defaults_json = card_args['defaults']
+
+        assert str(defaults_json['courseid']) == course_id
+        assert str(defaults_json['clazzId']) == clazz_id
+        assert str(defaults_json['knowledgeid']) == chapter_id
+
+        for attachment_item in attachments_json:
+            attachment_type = attachment_item.get("type")
+
+            if attachment_type == "document":
+                mod = DocumentModule(self.fxxkstar, attachment_item,
+                                     card_info, course_id, clazz_id, chapter_id)
+
+            elif attachment_type == "live":
+                mod = LiveModule(self.fxxkstar, attachment_item,
+                                 card_info, course_id, clazz_id, chapter_id)
+
+            elif attachment_type == "video":
+                mod = VideoModule(self.fxxkstar, attachment_item,
+                                  card_info, course_id, clazz_id, chapter_id)
+
+                if mod.can_play() and not mod.is_passed:
+                    self.video_to_watch.append(mod)
+
+            elif attachment_type == "workid":
+                mod = WorkModule(self.fxxkstar, attachment_item=attachment_item, card_info=card_info,
+                                 course_id=course_id, clazz_id=clazz_id, chapter_id=chapter_id)
+
+                if mod.paper.is_marked:
+                    WorkModule.review_paper(mod.paper)
+                else:
+                    prev_answer_map = {}
+                    for question in mod.paper.questions:
+                        prev_answer_map[question['question_id']
+                                        ] = question.get('selected', [])
+                    uncertain_questions = mod.correct_answers(
+                        mod.paper.questions, mod.work_id, card_url)
+                    mod.review_paper(mod.paper)
+                    FxxkStar.sleep(1000, 5000)
+
+                    save_answers = False
+                    for q in mod.paper.questions:
+                        if q.get('correct', None):
+                            q['selected'] = q['correct']
+                        if q.get('selected', []) != prev_answer_map[q['question_id']]:
+                            save_answers = True
+                    if save_answers:
+                        confirm_submit = G_CONFIG['auto_submit_work'] and len(
+                            uncertain_questions) == 0
+                        mod.upload_answers(
+                            mod.paper.questions, confirm_submit)
+                        if mod.paper.is_marked:
+                            mod.review_paper(mod.paper)
+                    elif G_VERBOSE:
+                        print("[Work] ", mod.title, mod.work_id, "no change")
+
+            else:
+                if G_VERBOSE:
+                    print("attachment_item", attachment_item)
+
+                if 'property' in attachment_item:
+                    attachment_property = attachment_item['property']
+                    if 'module' in attachment_property:
+                        module_type = attachment_property['module']
+                        if module_type == "insertbook":
+                            print("[InsertBook]",
+                                  attachment_property['bookname'])
+                            print("[InsertBook]",
+                                  attachment_property['readurl'])
+                        else:
+                            print(module_type)
+                else:
+                    if not G_VERBOSE:
+                        print("attachment_item", attachment_item)
+
+    def deal_chapter(self, chapter_meta: dict) -> None:
+        chapter_info = self.fxxkstar.load_chapter(chapter_meta)
+        for num in range(chapter_info['card_count']):
+            FxxkStar.sleep(500, 1500)
+            card_info = chapter_info['cards'][num]
+            self.medias_deal(
+                card_info, chapter_meta['courseid'], chapter_meta['clazzid'], chapter_meta['knowledgeId'])
+
+    def get_cookies(self) -> str:
+        return self.fxxkstar.get_agent().get_cookie_str()
+
+    def sync_video_progress(self, thread_count=3) -> None:
+        thread_pool = ThreadPoolExecutor(max_workers=thread_count)
+        future_list: List[Future] = []
+
+        def run_task(video_mod: VideoModule):
+            video_report_action(video_mod).run()
+
+        def dispatch_task():
+            def on_done(future: Future):
+                future_list.remove(future)
+                time.sleep(1)
+                dispatch_task()
+            while self.video_to_watch and len(future_list) < thread_count:
+                video_item: VideoModule = self.video_to_watch.pop(0)
+                future = thread_pool.submit(run_task, video_item)
+                future_list.append(future)
+                future.add_done_callback(on_done)
+                time.sleep(1)
+
+        print(G_STRINGS['sync_video_progress_started'])
+
+        dispatch_task()
+        while len(future_list) > 0:
+            future_list[0].result()
+
+        thread_pool.shutdown()
+        print(G_STRINGS['sync_video_progress_ended'])
         print()
 
-        course = fxxkstar.get_course_by_index(choose_course)
-        active_mod = fxxkstar.get_active_mod(course['courseid'])
-        print()
-        active_list = []
-        for active in active_mod.active_list:
-            if active['isLook'] == 1:
-                continue
-            active_list.append(active)
+    def check_notification(self, course_id: str) -> None:
+        active_mod = self.fxxkstar.load_active_mod(course_id)
+        active_list = None
         if G_CONFIG['test'] == True:
-            active_list = active_mod.active_list.copy()
+            active_list = active_mod.get_active_list()
+        else:
+            active_list = active_mod.get_ongoing_active_list()
         if len(active_list) > 0:
             print(G_STRINGS['notification'])
             print("-" * 20)
             for active in active_list:
                 print("* [%s] %s" % (active['nameFour'], active['nameOne']))
                 active_mod.deal_active(active['id'])
-                time.sleep(0.5)
+                FxxkStar.sleep(400, 500)
             print("-" * 20)
         print()
+
+    def choose_course_and_study(self) -> None:
+        self.print_course_list()
+        choose_course = input(G_STRINGS['input_course_num'])
+        print()
+
+        course = self.fxxkstar.get_course_by_index(choose_course)
+
+        print()
+        self.check_notification(course['courseid'])
         time.sleep(2)
 
         chapters = course['chapter_list']
-        unfinished_chapters = helper.select_unfinished_chapters(chapters)
-        time.sleep(2)
+        unfinished_chapters = self.select_unfinished_chapters(chapters)
+        time.sleep(1)
 
         chose_chapter_index = -1
         autotest = False
@@ -2562,7 +2553,7 @@ if __name__ == "__main__":
             choose_chapter = ''
 
             if autotest:
-                time.sleep(random.randint(1000, 5000) / 1000)
+                FxxkStar.sleep(1000, 5000)
             else:
                 choose_chapter = input(G_STRINGS['input_chapter_num']).strip()
 
@@ -2596,9 +2587,73 @@ if __name__ == "__main__":
 
             print()
             print(
-                f"🔴 {current_chapter['chapterNumber']} {current_chapter['chapterTitle']}")
-            helper.deal_chapter(current_chapter)
+                f"⚪ {current_chapter['chapterNumber']} {current_chapter['chapterTitle']}")
+            self.deal_chapter(current_chapter)
             print()
+
+
+def before_start() -> None:
+    "print some info before start"
+    print()
+    print(G_STRINGS['welcome_message'])
+    print("Repo: https://github.com/chettoy/FxxkStar")
+    print()
+    print("## Acknowledgments --")
+    print("+------------------------------------------------------------+")
+    print("| [chaoxing_tool](https://github.com/liuyunfz/chaoxing_tool) |")
+    print("| [cxmooc-tools](https://github.com/CodFrm/cxmooc-tools)     |")
+    print("| [FxxkSsxx](https://github.com/chettoy/FxxkSsxx)            |")
+    print("+------------------------------------------------------------+")
+    print()
+    input(G_STRINGS['press_enter_to_continue'])
+    print()
+
+
+def read_state_from_file() -> dict:
+    saved_file = open('star.json.zst', 'rb')
+    saved_data = saved_file.read()
+    saved_file.close()
+    saved_data = zstd.decompress(saved_data)
+    saved_data = json.loads(saved_data.decode('utf-8'))
+    return saved_data
+
+
+def save_state_to_file(fxxkstar: FxxkStar) -> None:
+    data = json.dumps(fxxkstar.save_state(), ensure_ascii=False)
+    data = zstd.ZstdCompressor().compress(data.encode('utf-8'))
+    save_file = open('star.json.zst', 'wb')
+    save_file.write(data)
+    save_file.close()
+    print(G_STRINGS['save_state_success'])
+
+
+def prepare() -> FxxkStar:
+    agent = MyAgent(G_HEADERS)
+    try:
+        saved_data = read_state_from_file()
+        return FxxkStar(agent, saved_data)
+    except FileNotFoundError:
+        return FxxkStar(agent)
+
+
+if __name__ == "__main__":
+    before_start()
+    fxxkstar = None
+    try:
+        fxxkstar = prepare()
+
+        helper = FxxkStarHelper(fxxkstar)
+        helper.login_if_need()
+        helper.show_profile()
+        print()
+        time.sleep(1.5)
+
+        helper.load_courses_if_need()
+
+        if G_CONFIG['save_state'] and fxxkstar is not None:
+            save_state_to_file(fxxkstar)
+
+        helper.choose_course_and_study()
 
         if input(G_STRINGS['input_if_sync_video_progress']) == 'y':
             helper.sync_video_progress()
@@ -2616,4 +2671,5 @@ if __name__ == "__main__":
     finally:
         if G_CONFIG['save_state'] and fxxkstar is not None:
             save_state_to_file(fxxkstar)
+        print()
         input(G_STRINGS['press_enter_to_continue'])

@@ -20,7 +20,7 @@
 
 - [x] Synchronize video playback progress
 
-- [ ] Get message notifications
+- [x] Get message notifications
 
 
 **CLI Client Features:**
@@ -54,7 +54,7 @@ FxxkStar works with [Python](https://www.python.org/download/) version 3.10 or a
 
 **requirements**
 
-- `lxml`, `beautifulsoup4`, `requests`
+- `lxml`, `beautifulsoup4`, `requests`, `zstandard`
 
 You can install requirements with the following command (using TUNA mirror):
 
@@ -62,6 +62,7 @@ You can install requirements with the following command (using TUNA mirror):
 pip install -i https://pypi.tuna.tsinghua.edu.cn/simple requests
 pip install -i https://pypi.tuna.tsinghua.edu.cn/simple lxml
 pip install -i https://pypi.tuna.tsinghua.edu.cn/simple beautifulsoup4
+pip install -i https://pypi.tuna.tsinghua.edu.cn/simple zstandard
 ```
 
 
