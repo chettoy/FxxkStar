@@ -55,6 +55,9 @@ FxxkStar works with [Python](https://www.python.org/download/) version 3.10 or a
 **requirements**
 
 - `lxml`, `beautifulsoup4`, `requests`, `brotli`, `zstandard`
+- `fonttools`, `pytesseract` (for identifying confused fonts)
+
+
 
 You can install requirements with the following command (using TUNA mirror):
 
@@ -64,9 +67,13 @@ pip install -i https://pypi.tuna.tsinghua.edu.cn/simple brotli
 pip install -i https://pypi.tuna.tsinghua.edu.cn/simple lxml
 pip install -i https://pypi.tuna.tsinghua.edu.cn/simple beautifulsoup4
 pip install -i https://pypi.tuna.tsinghua.edu.cn/simple zstandard
+pip install -i https://pypi.tuna.tsinghua.edu.cn/simple fonttools
+pip install -i https://pypi.tuna.tsinghua.edu.cn/simple pytesseract
 ```
 
 
+
+Note: Additional steps are required to install `pytesseract`, check the [pytesseract package page](https://pypi.python.org/pypi/pytesseract) for more information.
 
 ## Contributing
 

@@ -20,6 +20,10 @@ from bs4 import BeautifulSoup
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import List
+from collections import Counter
+from fontTools.ttLib import TTFont
+from PIL import Image, ImageDraw, ImageFont
+import pytesseract
 
 
 VERSION_NAME = "FxxkStar 0.9"
@@ -43,6 +47,7 @@ G_CONFIG = {
     'auto_submit_work': True,
 
     'video_only_mode': False,
+    'experimental_fix_fonts': False,
 
     'save_paper_to_file': False,
 
@@ -1384,8 +1389,8 @@ class WorkModule(AttachmentModule):
         self.paper_html: str = ""
         self._load()
         if G_CONFIG['save_paper_to_file']:
-            suffix = "1" if self.is_marked else ""
-            file_name = f"work_{self.work_id}_{suffix}.html"
+            suffix = "_1" if self.is_marked else ""
+            file_name = f"work_{self.work_id}{suffix}.html"
             with open(f"temp/work/{file_name}", "w") as f:
                 f.write(self.paper_html)
             print("[Work] ", self.title, file_name, " saved")
@@ -1489,6 +1494,10 @@ class WorkModule(AttachmentModule):
             is_correct: bool | None = None
 
         soup = BeautifulSoup(paper_page_html, "lxml")
+        if G_CONFIG['experimental_fix_fonts'] and soup.find("div", class_="font-cxsecret"):
+            print("[INFO] detect secret font")
+            paper_page_html = test_fix_ttf(paper_page_html)
+            soup = BeautifulSoup(paper_page_html, "lxml")
 
         # Parse paper status
         top_div = soup.find("div", class_="ZyTop")
@@ -2621,6 +2630,122 @@ class FxxkStarHelper():
                 f"⚪ {current_chapter['chapterNumber']} {current_chapter['chapterTitle']}")
             self.deal_chapter(current_chapter)
             print()
+
+
+def test_fix_ttf(html_text: str):
+
+    def translate(font_path) -> list:
+        font = TTFont(font_path)
+        image_font = ImageFont.truetype(font_path, size=40)
+        glyph_list = []
+        utext_list = []
+
+        for name in font.getGlyphOrder():
+            if name == '.notdef':
+                continue
+            u_text = ""
+            if name[:3] == 'uni':
+                u_text = name.replace('uni', '\\u')
+            elif name[:2] == 'uF':
+                u_text = name.replace('uF', '\\u')
+            else:
+                continue
+            u_text = json.loads(f'"{u_text}"')
+            #print(name, u_text)
+            glyph_list.append(name)
+            utext_list.append(u_text)
+
+        t_dict = {}
+        for u_text in utext_list:
+            t_dict[u_text] = []
+
+        utext_remains = utext_list.copy()
+        group_index = 0
+        group_max = (len(utext_list) / 20 + 1) * 4
+        width = 15
+        while True:
+            process_list = []
+            while len(utext_remains) < width:
+                utext_remains.extend(utext_list)
+            for i in range(width):
+                process_list.append(utext_remains.pop(0))
+            random.shuffle(process_list)
+
+            image_path1 = f"temp/cxsecret/img/{group_index}.png"
+            image_path2 = f"temp/cxsecret/img/{group_index}_r.png"
+
+            current_result = recog_glyph(process_list, image_font, image_path1)
+            reverse_process = process_list.copy()
+            reverse_process.reverse()
+            current_result2 = recog_glyph(
+                reverse_process, image_font, image_path2)
+            current_result2.reverse()
+            read_len = min(len(current_result), len(current_result2))
+            failed_list = []
+            for i in range(len(process_list)):
+                if i < read_len and current_result[i] == current_result2[i]:
+                    u_text = current_result[i][0]
+                    t_list = t_dict.get(u_text)
+                    t_list.append(current_result[i][1])
+                    if len(t_list) > 3 and u_text in utext_list and len(utext_list) > 5:
+                        utext_list.remove(u_text)
+                else:
+                    failed_list.append(process_list[i])
+            utext_remains.extend(failed_list)
+            group_index += 1
+            if group_index > group_max / 2:
+                width = 10
+            if group_index > group_max:
+                break
+        result = []
+        for u_text, t_list in t_dict.items():
+            counter = Counter(t_list)
+            print(u_text, counter)
+            best = counter.most_common(1)[0][0]
+            result.append((u_text, best))
+
+        return result
+
+    def recog_glyph(utext_list, image_font, image_path) -> list:
+
+        img = Image.new(mode='L', size=(40*len(utext_list), 40), color=255)
+        draw = ImageDraw.Draw(img)
+        for i, u_text in enumerate(utext_list):
+            draw.text((i*40, 0), u_text, font=image_font, fill=0)
+
+        img.save(image_path)
+        img = Image.open(image_path)
+        text = pytesseract.image_to_string(img, lang="chi_sim")
+        if not text:
+            text = pytesseract.image_to_string(
+                img, lang="chi_sim", config='--psm 10')
+        text = text.strip().replace('\n', '').replace(' ', '')
+        print(text)
+        print(len(text), len(utext_list))
+        if len(text) == len(utext_list):
+            text_list = list(text)
+            result = []
+            for i, u_text in enumerate(utext_list):
+                result.append((utext_list[i], text_list[i]))
+            return result
+        else:
+            return []
+
+    def fix_fonts(html):
+        secret_search = re.search(
+            r"url\('data:application/font-ttf;charset=utf-8;base64,(.*?)'\)", html)
+        secret = secret_search.group(1)
+        secret = base64.b64decode(secret)
+        with open("temp/cxsecret/tmp.ttf", "wb") as f:
+            f.write(secret)
+        text_map = translate("temp/cxsecret/tmp.ttf")
+        # for (s1, s2) in text_map:
+        #     print(s1, "->", s2)
+        for (s1, s2) in text_map:
+            html = html.replace(s1, s2)
+        return html
+
+    return fix_fonts(html_text)
 
 
 def before_start() -> None:
