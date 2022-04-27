@@ -8,6 +8,7 @@ import getpass
 import json
 import random
 import re
+import bs4
 import requests
 import threading
 import time
@@ -40,6 +41,8 @@ G_CONFIG = {
 
     # Submit paper automatically if all questions are answered
     'auto_submit_work': True,
+
+    'video_only_mode': False,
 
     'save_paper_to_file': False,
 
@@ -332,7 +335,7 @@ class FxxkStar():
                 retry -= 1
                 tag = "[{}] ".format(time.asctime(time.localtime(time.time())))
                 print(tag, err)
-                time.sleep(2)
+                time.sleep(5)
 
         if rsp.status_code == 200:
             # print(rsp.text)
@@ -438,7 +441,18 @@ class FxxkStar():
         t = datetime.datetime.utcnow() + datetime.timedelta(hours=+8)
         return t.strftime("%a %b %d %Y %H:%M:%S GMT+0800 (中国标准时间)")
 
-    def get_homepage_url(self) -> str:
+    @staticmethod
+    def bs_get_text_content(el: bs4.Tag) -> str:
+        contents = el.contents
+        if not contents:
+            return ""
+        text = ""
+        for con in contents:
+            if isinstance(con, str):
+                text += con
+        return text
+
+    def get_homepage_url(self, force_update=False) -> str:
         '''
         Get the homepage url in 10 minutes
         e.g. https://i.chaoxing.com/base?t=1680307200000
@@ -456,7 +470,7 @@ class FxxkStar():
             self.homepage_url = homepage_url
             return homepage_url
 
-        if self.homepage_url == "":
+        if self.homepage_url == "" or force_update:
             return load_homepage_url()
 
         url_parse = urllib.parse.urlparse(self.homepage_url)
@@ -479,7 +493,7 @@ class FxxkStar():
         return result['count']
 
     def load_profile(self) -> dict:
-        homepage_url = self.get_homepage_url()
+        homepage_url = self.get_homepage_url(force_update=True)
 
         self.sleep(500, 700)
 
@@ -508,6 +522,10 @@ class FxxkStar():
             "Referer": "https://i.chaoxing.com/",
         }).text
 
+        if G_CONFIG['test']:
+            with open("temp/debug-account_page.html", "w") as f:
+                f.write(account_page_html)
+
         def _parse_profile(account_page_html: str):
             soup = BeautifulSoup(account_page_html, "lxml")
             title = soup.find("title").string.strip()
@@ -521,12 +539,15 @@ class FxxkStar():
             fid_list_el = info_div.find(id="messageFid").find_all("li")
             fid_list = []
             for fid_el in fid_list_el:
-                item_name: str = fid_el.contents[0].strip()
-                item_value: str = fid_el.find(
-                    class_="xuehao").get_text().strip()
-                if item_value.startswith("学号/工号:"):
-                    item_value = item_value[6:]
-                fid_list.append([item_name, item_value])
+                item_name: str = self.bs_get_text_content(fid_el).strip()
+                value_el = fid_el.find(class_="xuehao")
+                if value_el:
+                    item_value: str = value_el.get_text().strip()
+                    if item_value.startswith("学号/工号:"):
+                        item_value = item_value[6:]
+                    fid_list.append([item_name, item_value])
+                else:
+                    fid_list.append([item_name, None])
 
             return {
                 "name": name,
@@ -1439,7 +1460,7 @@ class WorkModule(AttachmentModule):
 
     class PaperInfo:
         is_marked: bool
-        score: int = -1
+        score: float = -1.0
         questions: List[dict] = []
 
     @staticmethod
@@ -1483,8 +1504,11 @@ class WorkModule(AttachmentModule):
             #   <span style="font-size:16px;top:25px;float:right;">本次成绩：<span style="color: #000">100</span></span>,
             #   <span style="color: #000">100</span> ]
             if len(status_el) == 3:
-                score = int(status_el[2].text.strip())
-                assert f"本次成绩：{score}" in status_el[1].text.strip()
+                score = float(status_el[2].text.strip())
+                score_str = str(score)
+                if score_str.endswith(".0"):
+                    score_str = score_str[:-2]
+                assert f"本次成绩：{score_str}" in status_el[1].text.strip()
 
         # Find all question elements
         q_div = soup.find("div", id="ZyBottom")
@@ -1508,8 +1532,6 @@ class WorkModule(AttachmentModule):
             assert question_type >= 0
             assert question_tag in title_tags
 
-            # normalize topic title
-            question_title = WorkModule.normalize_topic(question_title)
             match_score = re.match(
                 "^\s*([\s\S]+?)\s*\(\S+分\)$", question_title)
             if match_score:
@@ -1816,7 +1838,7 @@ class WorkModule(AttachmentModule):
         if G_VERBOSE:
             print(paper.questions)
 
-        if paper.is_marked and paper.score != -1:
+        if paper.is_marked and paper.score != -1.0:
             score = "💯" if paper.score == 100 else str(paper.score)
             print(G_STRINGS['score_format'].format(score=score))
 
@@ -1981,32 +2003,38 @@ class WorkModule(AttachmentModule):
     def normalize_topic(topic: str) -> str:
         "Normalize the topic name"
 
-        topic = topic.strip()
         translate = [
-            ["，", ","],
-            ["。", "."],
-            ["？", "?"],
-            ["！", "!"],
-            ["：", ":"],
-            ["；", ";"],
-            ["（", "("],
-            ["）", ")"],
-            ["～", "~"],
-            ["‘", "'"],
-            ["’", "'"],
-            ["“", "\""],
-            ["”", "\""],
-            ["－", "-"],
-            ["／", "/"],
-            ["＝", "="],
-            ["＜", "<"],
-            ["＞", ">"],
-            ["＊", "*"],
-            ["＋", "+"],
-            ["％", "%"],
+            ("，", ","),
+            ("。", "."),
+            ("？", "?"),
+            ("！", "!"),
+            ("：", ":"),
+            ("；", ";"),
+            ("（", "("),
+            ("）", ")"),
+            ("～", "~"),
+            ("‘", "'"),
+            ("’", "'"),
+            ("“", "\""),
+            ("”", "\""),
+            ("－", "-"),
+            ("／", "/"),
+            ("＝", "="),
+            ("＜", "<"),
+            ("＞", ">"),
+            ("＊", "*"),
+            ("＋", "+"),
+            ("％", "%"),
+            ("｜", "|"),
+            ("｛", "{"),
+            ("｝", "}"),
+            ("［", "["),
+            ("］", "]"),
+            ("．", "."),
+            ("\r\n", "\n"),
         ]
-        for item in translate:
-            topic = topic.replace(item[0], item[1])
+        for (src, dst) in translate:
+            topic = topic.replace(src, dst)
 
         topic = re.sub("\s+", " ", topic).strip()
 
@@ -2353,7 +2381,7 @@ class FxxkStarHelper():
         return self.fxxkstar.uid
 
     def show_profile(self) -> dict:
-        if self.fxxkstar.account_info == {}:
+        if self.fxxkstar.account_info == {} or G_CONFIG['test']:
             self.fxxkstar.load_profile()
         profile = self.fxxkstar.account_info
         print(G_STRINGS['profile_greeting'].format(**profile))
@@ -2408,6 +2436,9 @@ class FxxkStarHelper():
 
         for attachment_item in attachments_json:
             attachment_type = attachment_item.get("type")
+
+            if G_CONFIG['video_only_mode'] and attachment_type != "video":
+                continue
 
             if attachment_type == "document":
                 mod = DocumentModule(self.fxxkstar, attachment_item,
