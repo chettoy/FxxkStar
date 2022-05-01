@@ -502,16 +502,16 @@ class FxxkStar():
 
         self.sleep(500, 700)
 
-        url1 = "https://i.chaoxing.com/base/verify"
-        parms1 = {"_t": self.format_date_like_javascript()}
-        print("[INFO] load_profile verify")
-        result1 = self.request_xhr(url1, {
-            "Origin": "https://i.chaoxing.com",
-            "Referer": homepage_url,
-        }, data=parms1, method="POST").json()
-        if result1.get("status", False) != True:
-            raise MyError(0, G_STRINGS['error_response'] +
-                          ": url=" + url1 + "\n" + str(result1))
+        # url1 = "https://i.chaoxing.com/base/verify"
+        # parms1 = {"_t": self.format_date_like_javascript()}
+        # print("[INFO] load_profile verify")
+        # result1 = self.request_xhr(url1, {
+        #     "Origin": "https://i.chaoxing.com",
+        #     "Referer": homepage_url,
+        # }, data=parms1, method="POST").json()
+        # if result1.get("status", False) != True:
+        #     raise MyError(0, G_STRINGS['error_response'] +
+        #                   ": url=" + url1 + "\n" + str(result1))
 
         url2 = "https://i.chaoxing.com/base/settings"
         print("[INFO] load_profile settings")
