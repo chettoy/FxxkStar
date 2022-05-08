@@ -6,9 +6,11 @@ import base64
 import datetime
 import getpass
 import json
+import os
 import random
 import re
 import bs4
+import hashlib
 import requests
 import threading
 import time
@@ -22,8 +24,6 @@ from dataclasses import dataclass
 from typing import List
 from collections import Counter
 from fontTools.ttLib import TTFont
-from PIL import Image, ImageDraw, ImageFont
-import pytesseract
 
 
 VERSION_NAME = "FxxkStar 0.9"
@@ -47,6 +47,8 @@ G_CONFIG = {
     'auto_submit_work': True,
 
     'video_only_mode': False,
+
+    # Use OCR instead of glyph table based matching
     'experimental_fix_fonts': False,
 
     'save_paper_to_file': False,
@@ -336,7 +338,7 @@ class FxxkStar():
                     rsp = requests.request(
                         method=method, url=url, headers=headers)
                 break
-            except ConnectionError as err:
+            except requests.exceptions.ConnectionError as err:
                 retry -= 1
                 tag = "[{}] ".format(time.asctime(time.localtime(time.time())))
                 print(tag, err)
@@ -1130,6 +1132,96 @@ class SignInModule:
                 return self.deal_sign_in()  # reload
 
 
+class CxUncovering:
+    def __init__(self) -> None:
+        self.prepare()
+        glyph_file = open('glyph_map', 'rb')
+        glyph_data = glyph_file.read()
+        glyph_file.close()
+        glyph_data = zstd.decompress(glyph_data)
+        self.glyph_map = json.loads(glyph_data.decode('utf-8'))
+        self.path_temp_font = "temp/cxsecret/tmp.ttf"
+
+    def translate(self, font_path) -> list:
+        glyph_map = self.glyph_map
+        font = TTFont(font_path)
+        xml_path = font_path.replace(".ttf", ".xml")
+        font.saveXML(xml_path)
+        xml_data = None
+        with open(xml_path, "rb") as xml_file:
+            xml_data = xml_file.read()
+        parser = etree.XMLParser(remove_blank_text=True)
+        xml_obj = etree.XML(xml_data, parser=parser)
+        glyph_list = xml_obj.findall("glyf/TTGlyph")
+        trans_list = []
+        for glyph in glyph_list:
+            glyph_name = glyph.attrib['name']
+
+            glyph_data = []
+            for child in glyph.getchildren():
+                glyph_data.append(etree.tostring(child).decode("utf-8"))
+            glyph_data_str = ''.join(glyph_data)
+            hash_str = hashlib.md5(glyph_data_str.encode("utf-8")).hexdigest()
+
+            if hash_str in glyph_map:
+                text0 = glyph_name.replace("uni", "\\u").encode(
+                    "utf-8").decode("unicode_escape")
+                text1 = glyph_map[hash_str].replace("uni", "\\u").encode(
+                    "utf-8").decode("unicode_escape")
+                trans_list.append((text0, text1))
+
+        if G_VERBOSE:
+            print(trans_list)
+        return trans_list
+
+    def fix_fonts(self, html):
+        secret_search = re.search(
+            r"url\('data:application/font-ttf;charset=utf-8;base64,(.*?)'\)", html)
+        secret = secret_search.group(1)
+        secret = base64.b64decode(secret)
+        with open(self.path_temp_font, "wb") as f:
+            f.write(secret)
+        text_map = self.translate(self.path_temp_font)
+        for (s1, s2) in text_map:
+            html = html.replace(s1, s2)
+        return html
+
+    @staticmethod
+    def prepare():
+        font_path = "temp/cxsecret/思源黑体.ttf"
+        font_xml_path = "temp/cxsecret/思源黑体.xml"
+        output_path = "glyph_map"
+        if not os.path.exists("temp/cxsecret"):
+            os.mkdir("temp/cxsecret")
+        if not os.path.exists(output_path):
+            if not os.path.exists(font_xml_path):
+                font = TTFont(font_path)
+                font.saveXML(font_xml_path)
+            xml_data = None
+            with open(font_xml_path, "rb") as xml_file:
+                xml_data = xml_file.read()
+            parser = etree.XMLParser(remove_blank_text=True)
+            xml_obj = etree.XML(xml_data, parser=parser)
+            glyph_list = xml_obj.findall("glyf/TTGlyph")
+            glyph_map = {}
+            for glyph in glyph_list:
+                glyph_name = glyph.attrib['name']
+
+                glyph_data = []
+                for child in glyph.getchildren():
+                    glyph_data.append(etree.tostring(child).decode("utf-8"))
+                glyph_data_str = ''.join(glyph_data)
+                hash_str = hashlib.md5(
+                    glyph_data_str.encode("utf-8")).hexdigest()
+                glyph_map[hash_str] = glyph_name
+
+            data = json.dumps(glyph_map, ensure_ascii=False)
+            data = zstd.ZstdCompressor().compress(data.encode('utf-8'))
+            save_file = open(output_path, 'wb')
+            save_file.write(data)
+            save_file.close()
+
+
 class AttachmentModule:
     def __init__(self, fxxkstar: FxxkStar, attachment_item: dict, card_info: dict, course_id, clazz_id, chapter_id):
         self.fxxkstar: FxxkStar = fxxkstar
@@ -1365,7 +1457,6 @@ class VideoModule(AttachmentModule):
 
     @staticmethod
     def encode_enc(clazzid: str, duration: int, objectId: str, otherinfo: str, jobid: str, userid: str, currentTimeSec: str):
-        import hashlib
         data = "[{0}][{1}][{2}][{3}][{4}][{5}][{6}][0_{7}]".format(clazzid, userid, jobid, objectId, int(
             currentTimeSec) * 1000, "d_yHJ!$pdA~5", duration * 1000, duration)
         if G_VERBOSE:
@@ -1375,6 +1466,9 @@ class VideoModule(AttachmentModule):
 
 class WorkModule(AttachmentModule):
     # module/work/index.html?v=2021-0927-1700
+
+    cx_uncovering = CxUncovering()
+
     def __init__(self, fxxkstar: FxxkStar, attachment_item: dict, card_info: dict, course_id: str, clazz_id: str, chapter_id: str):
         super().__init__(fxxkstar, attachment_item,
                          card_info, course_id, clazz_id, chapter_id)
@@ -1395,7 +1489,7 @@ class WorkModule(AttachmentModule):
                 f.write(self.paper_html)
             print("[Work] ", self.title, file_name, " saved")
 
-        self.paper = self.parse_paper(self.paper_html)
+        self.paper = self.parse_paper(self.paper_html, self.cx_uncovering)
         self._answers.save(
             fxxkstar, self.paper.questions, self.work_id, self.card_url)
 
@@ -1469,7 +1563,7 @@ class WorkModule(AttachmentModule):
         questions: List[dict] = []
 
     @staticmethod
-    def parse_paper(paper_page_html: str) -> PaperInfo:
+    def parse_paper(paper_page_html: str, cx_uncovering: 'CxUncovering') -> PaperInfo:
         "Parse the page html"
 
         @dataclass
@@ -1494,9 +1588,12 @@ class WorkModule(AttachmentModule):
             is_correct: bool | None = None
 
         soup = BeautifulSoup(paper_page_html, "lxml")
-        if G_CONFIG['experimental_fix_fonts'] and soup.find("div", class_="font-cxsecret"):
+        if soup.find("div", class_="font-cxsecret"):
             print("[INFO] detect secret font")
-            paper_page_html = test_fix_ttf(paper_page_html)
+            if G_CONFIG['experimental_fix_fonts']:
+                paper_page_html = experimental_fix_ttf(paper_page_html)
+            else:
+                paper_page_html = cx_uncovering.fix_fonts(paper_page_html)
             soup = BeautifulSoup(paper_page_html, "lxml")
 
         # Parse paper status
@@ -2247,7 +2344,8 @@ class WorkModule(AttachmentModule):
             time.sleep(0.2)
             if confirm_submit:
                 self._load()  # reload the page to get the result
-                self.paper = WorkModule.parse_paper(self.paper_html)
+                self.paper = WorkModule.parse_paper(
+                    self.paper_html, self.cx_uncovering)
                 WorkModule._answers.save(
                     self.fxxkstar, self.paper.questions, self.work_id, self.card_url)
             return True
@@ -2632,7 +2730,10 @@ class FxxkStarHelper():
             print()
 
 
-def test_fix_ttf(html_text: str):
+def experimental_fix_ttf(html_text: str):
+
+    from PIL import Image, ImageDraw, ImageFont
+    import pytesseract
 
     def translate(font_path) -> list:
         font = TTFont(font_path)
@@ -2661,7 +2762,7 @@ def test_fix_ttf(html_text: str):
 
         utext_remains = utext_list.copy()
         group_index = 0
-        group_max = (len(utext_list) / 20 + 1) * 4
+        group_max = (len(utext_list) / 15 + 1) * 4
         width = 15
         while True:
             process_list = []
