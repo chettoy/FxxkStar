@@ -1177,6 +1177,8 @@ class CxUncovering:
     def fix_fonts(self, html):
         secret_search = re.search(
             r"url\('data:application/font-ttf;charset=utf-8;base64,(.*?)'\)", html)
+        if secret_search is None:
+            return html
         secret = secret_search.group(1)
         secret = base64.b64decode(secret)
         with open(self.path_temp_font, "wb") as f:
@@ -1190,6 +1192,7 @@ class CxUncovering:
     def prepare():
         font_path = "temp/cxsecret/思源黑体.ttf"
         font_xml_path = "temp/cxsecret/思源黑体.xml"
+        equivalent_ideograph_path = "temp/cxsecret/Equivalent-UnifiedIdeograph-13.0.0.json"
         output_path = "glyph_map"
         if not os.path.exists("temp/cxsecret"):
             os.mkdir("temp/cxsecret")
@@ -1197,6 +1200,9 @@ class CxUncovering:
             if not os.path.exists(font_xml_path):
                 font = TTFont(font_path)
                 font.saveXML(font_xml_path)
+            equivalent_ideograph_map = {}
+            with open(equivalent_ideograph_path, "r") as f:
+                equivalent_ideograph_map = json.load(f)
             xml_data = None
             with open(font_xml_path, "rb") as xml_file:
                 xml_data = xml_file.read()
@@ -1206,6 +1212,8 @@ class CxUncovering:
             glyph_map = {}
             for glyph in glyph_list:
                 glyph_name = glyph.attrib['name']
+                text0 = glyph_name.replace("uni", "\\u").encode(
+                    "utf-8").decode("unicode_escape") if len(glyph_name) == 7 else glyph_name
 
                 glyph_data = []
                 for child in glyph.getchildren():
@@ -1213,7 +1221,23 @@ class CxUncovering:
                 glyph_data_str = ''.join(glyph_data)
                 hash_str = hashlib.md5(
                     glyph_data_str.encode("utf-8")).hexdigest()
+                if hash_str in glyph_map:
+                    prev_name = glyph_map[hash_str]
+                    text1 = prev_name.replace("uni", "\\u").encode(
+                        "utf-8").decode("unicode_escape")
+                    comp = '==' if text0 == text1 else '!='
+                    print(
+                        f"{hash_str} duplicated in {prev_name}({text1}) {comp} {glyph_name}({text0})")
+                if text0 in equivalent_ideograph_map:
+                    text0 = equivalent_ideograph_map[text0]
+                    glyph_name = text0.encode("unicode_escape").decode(
+                        "utf-8").replace("\\u", "uni")
                 glyph_map[hash_str] = glyph_name
+
+            # uni312A(ㄪ) -> uni4E07(万)
+            glyph_map["6a1170c7233e81b04656869517a2953a"] = "uni4E07"
+            # uni312C(ㄬ) -> uni5E7F(广)
+            glyph_map["489517af3a6dec1b67bf00c70d26f2b1"] = "uni5E7F"
 
             data = json.dumps(glyph_map, ensure_ascii=False)
             data = zstd.ZstdCompressor().compress(data.encode('utf-8'))
@@ -1589,7 +1613,8 @@ class WorkModule(AttachmentModule):
 
         soup = BeautifulSoup(paper_page_html, "lxml")
         if soup.find("div", class_="font-cxsecret"):
-            print("[INFO] detect secret font")
+            if G_VERBOSE:
+                print("[DEBUG] detect secret font")
             if G_CONFIG['experimental_fix_fonts']:
                 paper_page_html = experimental_fix_ttf(paper_page_html)
             else:
