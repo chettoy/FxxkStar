@@ -67,6 +67,7 @@ G_HEADERS = {
 }
 
 G_STRINGS = {
+    "alt_insertimage": " - [IMG]",
     "antispider_verify": "⚠️ Anti-Spider verify",
     "correct_answer": "Correct answer: ",
     "course_list_title": "Course List",
@@ -107,6 +108,7 @@ G_STRINGS = {
 }
 
 G_STRINGS_CN = {
+    "alt_insertimage": " - [图片]",
     "antispider_verify": "⚠️ 反蜘蛛验证",
     "correct_answer": "正确答案: ",
     "course_list_title": "课程列表",
@@ -326,7 +328,7 @@ class FxxkStar():
             raise MyError(0, G_STRINGS['antispider_verify'])
         return new_url
 
-    def request(self, url: str, additional_headers: dict = {}, data=None, method="GET", retry=2) -> requests.Response:
+    def request(self, url: str, additional_headers: dict = {}, data=None, method="GET", retry=3) -> requests.Response:
         headers = self.agent.build_headers_based_on(additional_headers)
         rsp = None
         while retry >= 0:
@@ -342,7 +344,7 @@ class FxxkStar():
                 retry -= 1
                 tag = "[{}] ".format(time.asctime(time.localtime(time.time())))
                 print(tag, err)
-                time.sleep(5)
+                time.sleep(10)
 
         if rsp.status_code == 200:
             # print(rsp.text)
@@ -1256,7 +1258,7 @@ class AttachmentModule:
         self.course_id: str = course_id
         self.clazz_id: str = clazz_id
         self.chapter_id: str = chapter_id
-        self.mid: str = attachment_item['mid']
+        self.mid: str | None = attachment_item.get("mid", None)
         self.defaults: dict = self.card_args['defaults']
         self.job: bool = attachment_item.get("job", False)
         self.module_type: str = attachment_item.get("type")
@@ -2390,14 +2392,18 @@ class WorkModule(AttachmentModule):
         def save(fxxkstar: FxxkStar, questions: List[dict], work_id: str, card_url: str) -> None:
             data = []
             for item in questions:
-                topic = item.get('topic')
-                r_type = WorkModule.chaoxing_type_to_banktype(item.get('type'))
                 correct = item.get('correct', None)
                 wrong = item.get('wrong', None)
-                assert isinstance(topic, str)
-                assert isinstance(r_type, int)
                 if not correct and not wrong:
                     continue
+
+                topic = item.get('topic')
+                r_type = WorkModule.chaoxing_type_to_banktype(item.get('type'))
+                if r_type == -1:
+                    continue
+                assert isinstance(topic, str)
+                assert isinstance(r_type, int)
+
                 save_item = {
                     "topic": topic,
                     "type": r_type,
@@ -2409,6 +2415,9 @@ class WorkModule(AttachmentModule):
                 if not wrong:
                     del save_item['wrong']
                 data.append(save_item)
+
+            if len(data) == 0:
+                return
 
             serialized_str: str = urllib.parse.urlencode({
                 "info": __class__._info(work_id, card_url),
@@ -2632,6 +2641,8 @@ class FxxkStarHelper():
                                   attachment_property['bookname'])
                             print("[InsertBook]",
                                   attachment_property['readurl'])
+                        elif module_type == "insertimage":
+                            print(G_STRINGS['alt_insertimage'])
                         else:
                             print(module_type)
                 else:
@@ -2938,7 +2949,7 @@ if __name__ == "__main__":
         helper.choose_course_and_study()
 
         if input(G_STRINGS['input_if_sync_video_progress']) == 'y':
-            helper.sync_video_progress()
+            helper.sync_video_progress(5)
 
     except Exception as err:
         tag = "[{}] ".format(time.asctime(time.localtime(time.time())))
