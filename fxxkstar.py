@@ -1646,8 +1646,8 @@ class WorkModule(AttachmentModule):
         # Find all question elements
         q_div = soup.find("div", id="ZyBottom")
         question_divs = q_div.find_all("div", class_="TiMu")
-        title_tags = ["【单选题】", "【多选题】", "【填空题】",
-                      "【判断题】", "【简答题】", "【名词解释】", "【论述题】", "【计算题】"]
+        title_tags = [["单选题", "Single Choice"], ["多选题"], ["填空题", "Fill in the Blank"], [
+            "判断题", "True or False"], ["简答题", "Short Answer"], ["名词解释", "Definitions"], ["论述题"], ["计算题"]]
         questions = []
         for question_div in question_divs:
             question_title = question_div.select(
@@ -1656,17 +1656,23 @@ class WorkModule(AttachmentModule):
             # parse question_type from tag
             question_tag = ""
             question_type = -1
+            match_question_tag = re.match(
+                "^[\[【]([\s\S]+?)[\]】]\s*([\s\S]+)\s*$", question_title)
+            if match_question_tag:
+                question_tag = match_question_tag.group(1)
+                question_title = match_question_tag.group(2)
             for i in range(len(title_tags)):
-                if question_title.startswith(title_tags[i]):
-                    question_tag = title_tags[i]
+                if question_tag in title_tags[i]:
                     question_type = i
-                    question_title = question_title[len(question_tag):].strip()
                     break
-            assert question_type >= 0
-            assert question_tag in title_tags
+            if question_type == -1:
+                if question_tag == "Cloze":
+                    question_type = 14
+                elif question_tag == "Speaking":
+                    question_type = 18
 
             match_score = re.match(
-                "^\s*([\s\S]+?)\s*\(\S+分\)$", question_title)
+                "^\s*([\s\S]+?)\s*[\(（]\S+?分[\)）]$", question_title)
             if match_score:
                 question_title = match_score.group(1)
 
@@ -1677,7 +1683,13 @@ class WorkModule(AttachmentModule):
                 # parse question_id and verify question_type
                 answertype_node = question_div.find(
                     "input", id=re.compile("answertype"))
-                assert question.type == int(answertype_node.get("value"))
+                if question.type != -1:
+                    assert question.type == int(answertype_node.get("value"))
+                else:
+                    question.type = int(answertype_node.get("value"))
+                    if question_tag not in ["Others"]:
+                        print("[WARN] unknown question type: [{}]={}".format(
+                            question_tag, question.type))
                 question_id = answertype_node.get("id")[10:]
                 question.question_id = question_id
 
@@ -1850,27 +1862,26 @@ class WorkModule(AttachmentModule):
                     current_answers: List[OptionItem] = []
                     for i in range(11):
                         input_node = question_div.find(
-                            attrs={"name": f"answerEditor{question.question_id}{i+1}"})
+                            "textarea", attrs={"name": f"answerEditor{question.question_id}{i+1}"})
                         if not input_node:
                             break
-                        con = input_node.get("value")
+                        con = input_node.string
                         if con:
                             current_answers.append(
-                                OptionItem(index_list[i], con))
+                                OptionItem(index_list[i], con.strip()))
                     assert len(current_answers) <= 10
                     if current_answers:
                         question.selected = current_answers
 
-            elif question.type in [4, 5, 6, 7]:  # Short answer
+            elif question.type in [4, 5, 6, 7, 8, 18]:  # Short answer
                 content: str = None
                 if marked:
                     content = mark_result.answer
                 else:
                     input_node = question_div.find(
-                        attrs={"name": f"answer{question.question_id}"})
-                    if not input_node:
-                        break
-                    content = input_node.get("value")
+                        "textarea", attrs={"name": f"answer{question.question_id}"})
+                    assert input_node is not None
+                    content = input_node.string.strip() if input_node.string else None
 
                 if content:
                     question.selected = [OptionItem("一", content)]
@@ -1948,18 +1959,21 @@ class WorkModule(AttachmentModule):
                 count = len(answers)
                 for i in range(0, count):
                     option_node = form1.find(
-                        attrs={"name": f"answerEditor{q_id}{i+1}"})
+                        "textarea", attrs={"name": f"answerEditor{q_id}{i+1}"})
                     assert option_node is not None
                     if len(answers) > 0:
-                        option_node['value'] = answers[i]['content']
+                        option_node.string = answers[i]['content']
                     else:
-                        del option_node['value']
-            elif q_type in [4, 5, 6, 7]:  # answer
-                option_node = form1.find_all(attrs={"name": f"answer{q_id}"})
+                        option_node.string = ""
+            elif q_type in [4, 5, 6, 7, 8, 18]:  # short answer
+                option_node_find = form1.find_all(
+                    "textarea", attrs={"name": f"answer{q_id}"})
+                assert len(option_node_find) == 1
+                option_node = option_node_find[0]
                 if len(answers) > 0:
-                    option_node['value'] = answers[0]['content']
+                    option_node.string = answers[0]['content']
                 else:
-                    del option_node['value']
+                    option_node.string = ""
             else:
                 print("not support question type:", q_type)
         return soup.decode()
@@ -2065,7 +2079,7 @@ class WorkModule(AttachmentModule):
                         if correct_count > i:
                             print(
                                 "| ", G_STRINGS['correct_answer'], correct[i]['content'])
-            elif q_type in [4, 5, 6, 7]:  # fill
+            elif q_type in [4, 5, 6, 7, 8, 18]:  # short answer
                 if not answers and not correct:
                     print("| ____")
                 else:
@@ -2093,8 +2107,13 @@ class WorkModule(AttachmentModule):
             2: 4,
             3: 3,
             4: 4,
+            5: 4,
+            6: 4,
+            7: 4,
+            8: 4,
+            18: 4,
         }
-        return translate_map[chaoxing_type]
+        return translate_map.get(chaoxing_type, -1)
 
     @staticmethod
     def banktype_to_chaoxing_type(banktype: int) -> int:
@@ -2127,7 +2146,7 @@ class WorkModule(AttachmentModule):
                 {"option": False, "content": False}
             ]
             answer.append(random.choice(judgement_options))
-        elif q_type in [4, 5, 6, 7]:
+        elif q_type in [4, 5, 6, 7, 8, 18]:
             answer.append({"option": "一", "content": "test"})
         question['selected'] = answer
         return question
