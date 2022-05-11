@@ -2,6 +2,8 @@
 
 [![Python 3.10](https://img.shields.io/badge/python-v3.10-blue)](https://www.python.org/) [![License](https://img.shields.io/github/license/chettoy/FxxkStar)](https://raw.githubusercontent.com/chettoy/FxxkStar/main/LICENSE) ![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/chettoy/FxxkStar)
 
+EN | [中文](#for-chinese-users-%E4%B8%AD%E6%96%87%E8%AF%B4%E6%98%8E)
+
 `FxxkStar` is an *API* and *example unofficial client* for the *SuperStar* online classroom platform (or *chaoxing*; *xuexitong*), that provides a better learning experience for students. 
 
 - Are you still struggling because of the user experience of the official client and web version?
@@ -35,6 +37,26 @@
 
 
 
+## For Chinese Users (中文说明)
+
+**`FxxkStar` 是用于超星学习通的API和非官方客户端脚本，可以为学生提供更好的学习体验。**
+
+API基于网页端新版页面协议和安卓端超星SDK协议，目前实现了以下接口：
+
+登录和获取账号信息；获取课程列表；获取课程详情和班级详情；获取章节列表；加载章节中的视频、文档、直播、课后习题；同步视频播放进度；获取课程内消息通知；签到；
+
+
+
+*注：FxxkStar只含有测试版客户端功能，另有基于专有API的学习版客户端*
+
+|          | 测试版                                                       | 学习版                                                       |
+| -------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| 功能     | ❌ 自动签到，自动观看全部视频，显示文档下载链接和直播回放链接，自动完成所有课后题 | ✔️ 手动签到，自由选择章节和任务点，同步已学视频的播放记录，显示文档下载链接和直播回放链接，查看已完成的课后题和正确答案 |
+| 效果     | ❌ 无法达到学习效果，只能用于测试用途                         | ✔️ 学习好帮手                                                 |
+| 获取方式 | ✔️ FxxkStar自带                                               | ✔️ 赞助获得                                                   |
+
+
+
 ## Screenshots
 
 ![Screenshot](https://github.com/chettoy/FxxkStar/raw/main/images/screenshot1.png)
@@ -54,8 +76,8 @@ FxxkStar works with [Python](https://www.python.org/download/) version 3.10 or a
 
 **requirements**
 
-- `lxml`, `beautifulsoup4`, `requests`, `brotli`, `zstandard`
-- `fonttools`, `pytesseract` (for identifying confused fonts)
+- `requests`, `brotli`, `lxml`, `beautifulsoup4`, `zstandard`, `fonttools`
+- `pytesseract` (Only required when using OCR)
 
 
 
