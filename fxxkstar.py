@@ -1627,7 +1627,7 @@ class WorkModule(AttachmentModule):
         top_div = soup.find("div", class_="ZyTop")
         status_el = top_div.select("h3 span")
         status_title = status_el[0].text.strip() if status_el else ''
-        assert status_title in ["待做", "已完成"]
+        assert status_title in ["待做", "已完成", "未达到及格线，请重做"]
         marked = status_title == "已完成"
         score = -1
 
