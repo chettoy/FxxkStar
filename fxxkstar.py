@@ -1196,6 +1196,8 @@ class CxUncovering:
         font_xml_path = "temp/cxsecret/思源黑体.xml"
         equivalent_ideograph_path = "temp/cxsecret/Equivalent-UnifiedIdeograph-13.0.0.json"
         output_path = "glyph_map"
+        if not os.path.exists("temp"):
+            os.mkdir("temp")
         if not os.path.exists("temp/cxsecret"):
             os.mkdir("temp/cxsecret")
         if not os.path.exists(output_path):
@@ -1493,12 +1495,17 @@ class VideoModule(AttachmentModule):
 class WorkModule(AttachmentModule):
     # module/work/index.html?v=2021-0927-1700
 
-    cx_uncovering = CxUncovering()
+    cx_uncovering = None
 
     def __init__(self, fxxkstar: FxxkStar, attachment_item: dict, card_info: dict, course_id: str, clazz_id: str, chapter_id: str):
         super().__init__(fxxkstar, attachment_item,
                          card_info, course_id, clazz_id, chapter_id)
         assert self.module_type == "workid"
+
+        # init static cx_uncovering
+        if WorkModule.cx_uncovering is None:
+            print("[INFO] init cx_uncovering")
+            WorkModule.cx_uncovering = CxUncovering()
 
         self.work_id: str = self.attachment_property['workid']
         self.jobid: str = self.attachment_property['jobid']
@@ -2918,6 +2925,7 @@ def before_start() -> None:
     print("+------------------------------------------------------------+")
     print()
     input(G_STRINGS['press_enter_to_continue'])
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
     print()
 
 
