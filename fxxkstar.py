@@ -47,6 +47,8 @@ G_CONFIG = {
     'auto_submit_work': True,
 
     'video_only_mode': False,
+    'work_only_mode': False,
+    'auto_review_mode': False,
 
     # Use OCR instead of glyph table based matching
     'experimental_fix_fonts': False,
@@ -103,6 +105,8 @@ G_STRINGS = {
     "sign_in_status_expired": "🚫 Sign in status: Expired",
     "sync_video_progress_started": "Sync video progress started",
     "sync_video_progress_ended": "Sync video progress ended",
+    "tag_eta": "ETA",
+    "tag_total_progress": "Total Progress",
     "unfinished_chapters_title": "Unfinished Chapters",
     "welcome_message": "🌠 Welcome to FxxkStar",
 }
@@ -144,6 +148,8 @@ G_STRINGS_CN = {
     "sign_in_status_expired": "🚫 签到状态: 过期",
     "sync_video_progress_started": "同步视频进度开始",
     "sync_video_progress_ended": "同步视频进度结束",
+    "tag_eta": "预计完成时间",
+    "tag_total_progress": "总进度",
     "unfinished_chapters_title": "未完成章节",
     "welcome_message": "🌠 欢迎使用 FxxkStar",
 }
@@ -314,13 +320,28 @@ class FxxkStar():
             raise MyError(
                 1, G_STRINGS['login_failed'] + ": " + str(sign_in_json))
 
-    def url_302(self, oldUrl: str, additional_headers: dict = {}) -> str:
+    def url_302(self, from_url: str, additional_headers: dict = {}, retry=5) -> str:
         headers = self.agent.build_headers_based_on(additional_headers)
-        course_302_rsp = requests.get(
-            url=oldUrl, headers=headers, allow_redirects=False)
-        new_url = course_302_rsp.headers.get("Location")
+
+        rsp = None
+        while retry >= 0:
+            try:
+                rsp = requests.get(
+                    url=from_url, headers=headers, allow_redirects=False)
+                break
+            except requests.exceptions.ConnectionError as err:
+                retry -= 1
+                tag = "[{}] ".format(time.asctime(time.localtime(time.time())))
+                print(tag, err)
+                time.sleep(10)
+        if rsp == None:
+            raise MyError(1, "url_302: Connection Error")
+        if rsp.status_code not in [302, 200, 301]:
+            raise MyError(rsp.status_code,
+                          G_STRINGS['error_response'] + ": url=" + from_url + "\n" + str(rsp.text))
+        new_url = rsp.headers.get("Location")
         if new_url == None:
-            new_url = oldUrl
+            new_url = from_url
         else:
             if G_VERBOSE:
                 print("[INFO] 302 to " + new_url)
@@ -1463,11 +1484,14 @@ class VideoModule(AttachmentModule):
     def can_play(self) -> bool:
         return self.status_data['status'] == "success"
 
+    def get_duration(self) -> int:
+        return int(self.status_data['duration'])
+
     def gen_report_url(self, playing_time, is_drag=0) -> str | None:
         if not self.can_play():
             return None
 
-        duration = self.status_data.get('duration')
+        duration = self.get_duration()
         dtoken = self.status_data.get('dtoken')
         report_url_base = self.defaults['reportUrl']
         if G_VERBOSE:
@@ -1708,9 +1732,11 @@ class WorkModule(AttachmentModule):
                     if answer_mark_el:
                         answer_mark_classlist: list = answer_mark_el[0].get(
                             "class")
-                        if "dui" in answer_mark_classlist:
+                        if "cuo" in answer_mark_classlist:
+                            mark_result.is_correct = False
+                        elif "dui" in answer_mark_classlist:
                             mark_result.is_correct = True
-                        elif "cuo" in answer_mark_classlist:
+                        elif "bandui" in answer_mark_classlist:
                             mark_result.is_correct = False
                         else:
                             assert False
@@ -1757,7 +1783,13 @@ class WorkModule(AttachmentModule):
                         else:
                             not_selected.append(option_info)
 
-                    if mark_result.is_correct is not None:
+                    if mark_result.correct_answer:
+                        correct_options: List[OptionItem] = []
+                        for option_info in options:
+                            if option_info.option in mark_result.correct_answer:
+                                correct_options.append(option_info)
+                        question.correct = correct_options
+                    elif mark_result.is_correct is not None:
                         if mark_result.is_correct:
                             question.correct = selected
                         else:
@@ -2416,6 +2448,24 @@ class WorkModule(AttachmentModule):
 
         @staticmethod
         def save(fxxkstar: FxxkStar, questions: List[dict], work_id: str, card_url: str) -> None:
+            count = len(questions)
+            if count <= 20:
+                __class__._save_20(fxxkstar, questions, work_id, card_url)
+                return
+            remaining_questions = questions.copy()
+            while len(remaining_questions) > 20:
+                batch_questions = remaining_questions[:20]
+                remaining_questions = remaining_questions[20:]
+                __class__._save_20(
+                    fxxkstar, batch_questions, work_id, card_url)
+                FxxkStar.sleep(50)
+            if len(remaining_questions) > 0:
+                __class__._save_20(
+                    fxxkstar, remaining_questions, work_id, card_url)
+            print("[INFO] _answers.save, finish count=" + str(count))
+
+        @staticmethod
+        def _save_20(fxxkstar: FxxkStar, questions: List[dict], work_id: str, card_url: str) -> None:
             data = []
             for item in questions:
                 correct = item.get('correct', None)
@@ -2465,20 +2515,20 @@ class WorkModule(AttachmentModule):
 class video_report_action:
 
     def __init__(self, video_mod: VideoModule):
-        self.multimedia_headers = video_mod.fxxkstar.get_agent().build_headers_based_on(
+        self.multimedia_headers: dict = video_mod.fxxkstar.get_agent().build_headers_based_on(
             video_mod.fxxkstar.get_agent().headers_additional_xhr, {
                 'Accept': '*/*',
                 'Content-Type': 'application/json',
                 'Referer': 'https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2022-0406-1945',
             })
-        self.clazz_id = video_mod.clazz_id
-        self.duration = video_mod.status_data['duration']
-        self.jobid = video_mod.jobid
-        self.object_id = video_mod.object_id
-        self.other_info = video_mod.other_info
-        self.uid = video_mod.uid
-        self.total_time = int(self.duration)
-        self.video_mod = video_mod
+        self.clazz_id: str = video_mod.clazz_id
+        self.duration: int = video_mod.get_duration()
+        self.jobid: str = video_mod.jobid
+        self.object_id: str = video_mod.object_id
+        self.other_info: str = video_mod.other_info
+        self.uid: str = video_mod.uid
+        self.total_time: int = self.duration
+        self.video_mod: VideoModule = video_mod
 
     def run(self) -> None:
         self.name = threading.current_thread().name
@@ -2517,15 +2567,15 @@ class video_report_action:
         rsp = requests.get(url=self.video_mod.gen_report_url(
             self.total_time, is_drag=4), headers=self.multimedia_headers)
         print("⌛[%s] %s %s" % (self.name, self.video_mod.name, rsp.text))
-        if rsp.json.__get__('isPassed') == True:
+        if rsp.json().get('isPassed') == True:
             print("✅ %s" % (self.video_mod.name))
 
 
 class FxxkStarHelper():
     def __init__(self, fxxkstar: FxxkStar):
-        self.fxxkstar = fxxkstar
-        self.unfinished_chapters = []
-        self.video_to_watch = []
+        self.fxxkstar: FxxkStar = fxxkstar
+        self.unfinished_chapters: List[dict] = []
+        self.video_to_watch: List[VideoModule] = []
 
     @staticmethod
     def start_interactive_login(fxxkstar: FxxkStar) -> None:
@@ -2606,6 +2656,8 @@ class FxxkStarHelper():
 
             if G_CONFIG['video_only_mode'] and attachment_type != "video":
                 continue
+            if G_CONFIG['work_only_mode'] or G_CONFIG['auto_review_mode'] and attachment_type != "workid":
+                continue
 
             if attachment_type == "document":
                 mod = DocumentModule(self.fxxkstar, attachment_item,
@@ -2626,6 +2678,9 @@ class FxxkStarHelper():
                 mod = WorkModule(self.fxxkstar, attachment_item=attachment_item, card_info=card_info,
                                  course_id=course_id, clazz_id=clazz_id, chapter_id=chapter_id)
 
+                if G_CONFIG['auto_review_mode']:
+                    continue
+
                 if mod.paper.is_marked:
                     WorkModule.review_paper(mod.paper)
                 else:
@@ -2635,8 +2690,10 @@ class FxxkStarHelper():
                                         ] = question.get('selected', [])
                     uncertain_questions = mod.correct_answers(
                         mod.paper.questions, mod.work_id, card_url)
-                    mod.review_paper(mod.paper)
-                    FxxkStar.sleep(1000, 5000)
+                    fast_forward = 'ff' in G_CONFIG['magic']
+                    if not fast_forward:
+                        mod.review_paper(mod.paper)
+                        FxxkStar.sleep(1000)
 
                     save_answers = False
                     for q in mod.paper.questions:
@@ -2645,6 +2702,9 @@ class FxxkStarHelper():
                         if q.get('selected', []) != prev_answer_map[q['question_id']]:
                             save_answers = True
                     if save_answers:
+                        if fast_forward:
+                            mod.review_paper(mod.paper)
+                        FxxkStar.sleep(1000, 4000)
                         confirm_submit = G_CONFIG['auto_submit_work'] and len(
                             uncertain_questions) == 0
                         mod.upload_answers(
@@ -2690,12 +2750,48 @@ class FxxkStarHelper():
         thread_pool = ThreadPoolExecutor(max_workers=thread_count)
         future_list: List[Future] = []
 
+        def print_eta(i: int, total: int) -> None:
+            if i > total:
+                i = total
+            print()
+            print(f"{G_STRINGS['tag_total_progress']}: {i}/{total}")
+            # [####------] 100.0%
+            print(
+                f"[{'#' * int(i / total * 20)}{'-' * (20 - int(i / total * 20))}] {round(i / total * 100, 2)}%")
+            print()
+
+        def calc_eta() -> int:
+            duration_list = []
+            for item in self.video_to_watch:
+                duration_list.append(item.get_duration())
+
+            simu_list = []
+            eta = len(duration_list) * 2
+            while len(duration_list) > 0:
+                while len(duration_list) > 0 and len(simu_list) < thread_count:
+                    simu_list.append(duration_list.pop(0))
+                current_duration = min(simu_list)
+                simu_list = map(lambda x: x - current_duration, simu_list)
+                eta += current_duration
+                simu_list = list(filter(lambda x: x > 0, simu_list))
+            eta += max(simu_list)
+
+            return eta
+
+        eta = calc_eta()
+        print(f"[{G_STRINGS['tag_eta']}] {eta//60}min {eta%60}s")
+        print(G_STRINGS['sync_video_progress_started'])
+
+        start_time = FxxkStar.get_time_millis()
+
         def run_task(video_mod: VideoModule):
             video_report_action(video_mod).run()
 
         def dispatch_task():
             def on_done(future: Future):
                 future_list.remove(future)
+                now = FxxkStar.get_time_millis()
+                print_eta((now - start_time)//1000, eta)
                 time.sleep(1)
                 dispatch_task()
             while self.video_to_watch and len(future_list) < thread_count:
@@ -2704,8 +2800,6 @@ class FxxkStarHelper():
                 future_list.append(future)
                 future.add_done_callback(on_done)
                 time.sleep(1)
-
-        print(G_STRINGS['sync_video_progress_started'])
 
         dispatch_task()
         while len(future_list) > 0:
@@ -2744,11 +2838,14 @@ class FxxkStarHelper():
         time.sleep(2)
 
         chapters = course['chapter_list']
-        unfinished_chapters = self.select_unfinished_chapters(chapters)
+        auto_review = G_CONFIG['auto_review_mode']
+
+        unfinished_chapters = chapters if auto_review else self.select_unfinished_chapters(
+            chapters)
         time.sleep(1)
 
         chose_chapter_index = -1
-        autotest = False
+        autotest = auto_review
         while True:
             choose_chapter = ''
 
@@ -2772,16 +2869,27 @@ class FxxkStarHelper():
             print()
             current_chapter = None
             if isinstance(choose_chapter, int):
+                # select by the index of unfinished_chapters
                 if 0 <= choose_chapter < unfinished_chapters.__len__():
                     current_chapter = unfinished_chapters[choose_chapter]
                     chose_chapter_index = choose_chapter
                 else:
                     break
             else:
-                for chapter in chapters:
+                # select by chapter_number
+                # find in unfinished_chapters and set chose_chapter_index
+                for i, chapter in enumerate(unfinished_chapters):
                     if chapter['chapterNumber'] == choose_chapter:
                         current_chapter = chapter
+                        chose_chapter_index = i
                         break
+                # or find in all chapters
+                if current_chapter is None:
+                    for chapter in chapters:
+                        if chapter['chapterNumber'] == choose_chapter:
+                            current_chapter = chapter
+                            break
+                # or quit
                 if current_chapter is None:
                     break
 
