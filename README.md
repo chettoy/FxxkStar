@@ -2,7 +2,7 @@
 
 [![Python 3.10](https://img.shields.io/badge/python-v3.10-blue)](https://www.python.org/) [![License](https://img.shields.io/github/license/chettoy/FxxkStar)](https://raw.githubusercontent.com/chettoy/FxxkStar/main/LICENSE) ![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/chettoy/FxxkStar)
 
-EN | [中文](#for-chinese-users-%E4%B8%AD%E6%96%87%E8%AF%B4%E6%98%8E)
+EN | [中文](#for-chinese-users-中文说明)
 
 `FxxkStar` is an *API* and *example unofficial client* for the *SuperStar* online classroom platform (or *chaoxing*; *xuexitong*), that provides a better learning experience for students. 
 
@@ -49,11 +49,11 @@ API基于网页端新版页面协议和安卓端超星SDK协议，目前实现�
 
 *注：FxxkStar只含有测试版客户端功能，另有基于专有API的学习版客户端*
 
-|          | 测试版                                                       | 学习版                                                       |
-| -------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| 功能     | ❌ 自动签到，自动观看全部视频，显示文档下载链接和直播回放链接，自动完成所有课后题 | ✔️ 手动签到，自由选择章节和任务点，同步已学视频的播放记录，显示文档下载链接和直播回放链接，查看已完成的课后题和正确答案 |
-| 效果     | ❌ 无法达到学习效果，只能用于测试用途                         | ✔️ 学习好帮手                                                 |
-| 获取方式 | ✔️ FxxkStar自带                                               | ✔️ 赞助获得                                                   |
+|          | 测试版                                         | 学习版                                                       |
+| -------- | ---------------------------------------------- | ------------------------------------------------------------ |
+| 功能对比 | 自动签到，自动观看全部视频，自动完成所有课后题 | 手动签到，只能同步已学视频的播放记录，只能查看已完成的课后题和正确答案 |
+| 效果     | ❌ 无法达到学习效果                             | ✔️ 学习好帮手                                                 |
+| 获取方式 | ✔️ FxxkStar自带                                 | ✔️ 赞助获得                                                   |
 
 
 
