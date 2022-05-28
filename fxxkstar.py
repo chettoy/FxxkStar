@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from typing import List
 from collections import Counter
 from fontTools.ttLib import TTFont
+from Crypto.Cipher import DES
+from cryptography.hazmat.primitives import padding
 
 
 VERSION_NAME = "FxxkStar 0.9"
@@ -290,20 +292,32 @@ class FxxkStar():
                 return False
         return True
 
+    @staticmethod
+    def encrypt_by_DES(message: str, key: str) -> str:
+        key_bytes = key.encode('utf-8')
+        des = DES.new(key_bytes, DES.MODE_ECB)
+
+        data = message.encode('utf-8')
+        padder = padding.PKCS7(64).padder()
+        padded_data = padder.update(data) + padder.finalize()
+
+        ciphertext = des.encrypt(padded_data)
+        return ciphertext.hex()
+
     def sign_in(self, uname: str, password: str):
         url = "https://passport2.chaoxing.com/fanyalogin"
-        data = "fid=314&uname={0}&password={1}&refer=http%3A%2F%2Fi.chaoxing.com&t=true&forbidotherlogin=0".format(
-            uname, base64.b64encode(password.encode("utf-8")).decode("utf-8"))
+        data = "fid=-1&uname={0}&password={1}&refer=https%3A%2F%2Fi.chaoxing.com&t=true&forbidotherlogin=0&validate=".format(
+            uname, self.encrypt_by_DES(password, "u2oh6Vu^"))
         headers = self.agent.build_headers_based_on({
             'Accept': 'application/json, text/javascript, */*; q=0.01',
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'Cookie': 'fanyamoocs=11401F839C536D9E; fid=314; isfyportal=1; ptrmooc=t',
-            'Host': 'passport2.chaoxing.com',
+            'Cookie': 'source=""',
             'Origin': 'https://passport2.chaoxing.com',
-            'Referer': 'https://passport2.chaoxing.com/login?loginType=4&fid=314&newversion=true&refer=http://i.mooc.chaoxing.com',
+            'Referer': 'https://passport2.chaoxing.com/login?fid=&newversion=true&refer=https%3A%2F%2Fi.chaoxing.com',
         }, self.agent.headers_additional_xhr)
         sign_in_rsp = requests.post(url=url, data=data, headers=headers)
         sign_in_json = sign_in_rsp.json()
+
         if sign_in_json['status']:
             self.uid = sign_in_rsp.cookies['_uid']
             for item in sign_in_rsp.cookies:
@@ -2752,7 +2766,7 @@ class FxxkStarHelper():
 
         def print_eta(i: int, total: int) -> None:
             if i > total:
-                i = total
+                total = i
             print()
             print(f"{G_STRINGS['tag_total_progress']}: {i}/{total}")
             # [####------] 100.0%

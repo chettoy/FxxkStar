@@ -47,7 +47,7 @@ API基于网页端新版页面协议和安卓端超星SDK协议，目前实现�
 
 
 
-*注：FxxkStar只含有测试版客户端功能，另有基于专有API的学习版客户端*
+*注：FxxkStar含有测试版客户端功能*
 
 |          | 测试版                                         | 学习版                                                       |
 | -------- | ---------------------------------------------- | ------------------------------------------------------------ |
@@ -66,7 +66,7 @@ API基于网页端新版页面协议和安卓端超星SDK协议，目前实现�
 
 ## Installation
 
-You can download FxxkStar by cloning the [Git](https://github.com/chettoy/FxxkStar) repository:
+You can download FxxkStar by cloning [the Git repository](https://github.com/chettoy/FxxkStar):
 
 ```shell
 git clone --depth 1 https://github.com/chettoy/FxxkStar.git FxxkStar-dev
@@ -74,28 +74,38 @@ git clone --depth 1 https://github.com/chettoy/FxxkStar.git FxxkStar-dev
 
 FxxkStar works with [Python](https://www.python.org/download/) version 3.10 or above on any platform.
 
-**requirements**
-
-- `requests`, `brotli`, `lxml`, `beautifulsoup4`, `zstandard`, `fonttools`
-- `pytesseract` (Only required when using OCR)
 
 
-
-You can install requirements with the following command (using TUNA mirror):
+You can install the requirements (using the TUNA mirror) with the following command via `pip`.
 
 ```shell
-pip install -i https://pypi.tuna.tsinghua.edu.cn/simple requests
-pip install -i https://pypi.tuna.tsinghua.edu.cn/simple brotli
-pip install -i https://pypi.tuna.tsinghua.edu.cn/simple lxml
-pip install -i https://pypi.tuna.tsinghua.edu.cn/simple beautifulsoup4
-pip install -i https://pypi.tuna.tsinghua.edu.cn/simple zstandard
-pip install -i https://pypi.tuna.tsinghua.edu.cn/simple fonttools
-pip install -i https://pypi.tuna.tsinghua.edu.cn/simple pytesseract
+pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+```
+
+Optional: Additional steps are required to install `pytesseract` data, check the [pytesseract package page](https://pypi.python.org/pypi/pytesseract) for more information. (Required only when OCR is enabled)
+
+
+
+**ArchLinux**
+
+install the requirements with:
+
+```shell
+sudo pacman -S python-beautifulsoup4 python-brotli python-cryptography python-fonttools \
+               python-lxml python-pycryptodome python-requests python-zstandard
 ```
 
 
 
-Note: Additional steps are required to install `pytesseract`, check the [pytesseract package page](https://pypi.python.org/pypi/pytesseract) for more information.
+## Usage
+
+```shell
+python fxxkstar.py
+```
+
+For **Windows** users, run with *Windows Terminal* to get better experience.
+
+
 
 ## Contributing
 
