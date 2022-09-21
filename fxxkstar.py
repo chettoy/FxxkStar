@@ -65,7 +65,7 @@ G_CONFIG = {
 G_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Encoding": "gzip, deflate, br",
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:99.0) Gecko/20100101 Firefox/99.0",
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:105.0) Gecko/20100101 Firefox/105.0",
     "Connection": "keep-alive",
     "Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2",
 }
@@ -1436,7 +1436,7 @@ class DocumentModule(AttachmentModule):
         status_url = "https://mooc1.chaoxing.com/ananas/status/{}?flag=normal&_dc={}".format(
             object_id, int(time.time() * 1000))
         status_rsp = fxxkstar.request_xhr(status_url, {
-            "Referer": "https://mooc1.chaoxing.com/ananas/modules/pdf/index.html?v=2022-0218-1135"
+            "Referer": "https://mooc1.chaoxing.com/ananas/modules/pdf/index.html?v=2022-0830-1135"
         }, method="GET")
         status_json = json.loads(status_rsp.text)
         if status_json['status'] == 'success':
@@ -1450,7 +1450,7 @@ class DocumentModule(AttachmentModule):
         url = "https://mooc1.chaoxing.com/ananas/job/document?jobid={}&knowledgeid={}&courseid={}&clazzid={}&jtoken={}".format(
             jobid, chapter_id, course_id, clazz_id, jtoken)
         multimedia_rsp = fxxkstar.request_xhr(url, {
-            "Referer": "https://mooc1.chaoxing.com/ananas/modules/pdf/index.html?v=2022-0218-1135"
+            "Referer": "https://mooc1.chaoxing.com/ananas/modules/pdf/index.html?v=2022-0830-1135"
         }, method="GET")
         print("[INFO] mission_document")
         print(multimedia_rsp.text)
@@ -1480,7 +1480,7 @@ class VideoModule(AttachmentModule):
         status_url = "https://mooc1.chaoxing.com/ananas/status/{}?k=1606&flag=normal&_dc={}".format(
             object_id, int(time.time() * 1000))
         status_rsp = fxxkstar.request_xhr(status_url, {
-            "Referer": "https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2022-0406-1945"
+            "Referer": "https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2022-0909-2029"
         }, method="GET")
         status_json = json.loads(status_rsp.text)
         if status_json['status'] == "success":
@@ -1532,6 +1532,7 @@ class VideoModule(AttachmentModule):
 
 class WorkModule(AttachmentModule):
     # module/work/index.html?v=2021-0927-1700
+    # referer updated: 2022-0714-1515
 
     cx_uncovering = None
 
@@ -1617,7 +1618,7 @@ class WorkModule(AttachmentModule):
             print("[INFO] module_work, src=" + src)
 
         headers = self.fxxkstar.get_agent().build_headers_based_on(self.fxxkstar.get_agent().headers_additional_iframe, {
-            "Referer": "https://mooc1.chaoxing.com/ananas/modules/work/index.html?v=2021-0927-1700&castscreen=0"
+            "Referer": "https://mooc1.chaoxing.com/ananas/modules/work/index.html?v=2022-0714-1515&castscreen=0"
         })
         src2 = self.fxxkstar.url_302(src, headers)
         src3 = self.fxxkstar.url_302(src2, headers)
@@ -2294,7 +2295,7 @@ class WorkModule(AttachmentModule):
             course_id, clazz_id, cpi)
         rsp_text = fxxkstar.request_xhr(ajax_url, {
             "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Referer": "https://mooc1.chaoxing.com/ananas/modules/work/index.html?v=2021-0927-1700&castscreen=0",
+            "Referer": "https://mooc1.chaoxing.com/ananas/modules/work/index.html?v=2022-0714-1515&castscreen=0",
         }).text
         # {"status":3}
         if G_VERBOSE:
@@ -2354,7 +2355,7 @@ class WorkModule(AttachmentModule):
 
         rsp_text = fxxkstar.request_xhr(ajax_url, {
             "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Referer": "https://mooc1.chaoxing.com/ananas/modules/work/index.html?v=2021-0927-1700&castscreen=0",
+            "Referer": "https://mooc1.chaoxing.com/ananas/modules/work/index.html?v=2022-0714-1515&castscreen=0",
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
         }, data=ajax_data, method=ajax_type).text
         # {"msg":"保存成功！","status":true}
@@ -2533,7 +2534,7 @@ class video_report_action:
             video_mod.fxxkstar.get_agent().headers_additional_xhr, {
                 'Accept': '*/*',
                 'Content-Type': 'application/json',
-                'Referer': 'https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2022-0406-1945',
+                'Referer': 'https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2022-0909-2029',
             })
         self.clazz_id: str = video_mod.clazz_id
         self.duration: int = video_mod.get_duration()
