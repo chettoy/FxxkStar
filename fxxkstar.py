@@ -510,6 +510,10 @@ class FxxkStar():
             if homepage_soup.find("title").string.strip() != "个人空间":
                 raise MyError(0, G_STRINGS['error_response'] +
                               ": url=" + homepage_url + "\n" + str(homepage_html))
+            if homepage_url.startswith("http://"):
+                if G_VERBOSE:
+                    print("Rewrite homepage_url to use HTTPS")
+                homepage_url = "https://" + homepage_url[7:]
             assert homepage_url.startswith("https://i.chaoxing.com/base")
             self.homepage_url = homepage_url
             return homepage_url
@@ -2366,7 +2370,10 @@ class WorkModule(AttachmentModule):
             print('✅', result['msg'])
             return True
         else:
-            raise MyError(result['msg'] + " " + rsp_text)
+            print('💬', result['msg'])
+            print(G_STRINGS['press_enter_to_continue'])
+            input()
+            #raise MyError(1, result['msg'] + " " + rsp_text)
 
     def correct_answers(self, questions: List[dict], work_id: str, card_url: str) -> List[dict]:
         "Set correct answers in question dict, return a list of unprocessed questions"
