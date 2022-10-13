@@ -42,7 +42,7 @@ G_CONFIG = {
     'save_state': True,
 
     # If set to False, data will load from cache
-    'always_request_course_list': False,
+    'always_request_course_list': True,
     'always_request_course_info': True,
 
     # Submit paper automatically if all questions are answered
@@ -457,7 +457,7 @@ class FxxkStar():
                 selected_options = [options[0]]
 
             if not is_multiple:
-                assert(len(selected_options) < 2)
+                assert (len(selected_options) < 2)
                 if len(selected_options) == 1:
                     value = selected_options[0]['value']
             else:
@@ -2814,14 +2814,14 @@ class FxxkStarHelper():
                 future_list.remove(future)
                 now = FxxkStar.get_time_millis()
                 print_eta((now - start_time)//1000, eta)
-                time.sleep(1)
+                time.sleep(1.5)
                 dispatch_task()
             while self.video_to_watch and len(future_list) < thread_count:
                 video_item: VideoModule = self.video_to_watch.pop(0)
                 future = thread_pool.submit(run_task, video_item)
                 future_list.append(future)
                 future.add_done_callback(on_done)
-                time.sleep(1)
+                time.sleep(1.5)
 
         dispatch_task()
         while len(future_list) > 0:
@@ -3054,7 +3054,7 @@ def before_start() -> None:
     print("| [FxxkSsxx](https://github.com/chettoy/FxxkSsxx)            |")
     print("+------------------------------------------------------------+")
     print()
-    input(G_STRINGS['press_enter_to_continue'])
+    G_CONFIG['magic'] = input(G_STRINGS['press_enter_to_continue']).strip()
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     print()
 
@@ -3088,6 +3088,23 @@ def prepare() -> FxxkStar:
 
 if __name__ == "__main__":
     before_start()
+
+    # For testing
+    s_magic = G_CONFIG['magic']
+    if ',,,' in s_magic:
+        if 'dbg' in s_magic:
+            G_CONFIG['debug'] = True
+        if 'vid' in s_magic:
+            G_CONFIG['video_only_mode'] = True
+        if 'wor' in s_magic:
+            G_CONFIG['work_only_mode'] = True
+        if 'sss' in s_magic:
+            G_CONFIG['auto_review_mode'] = True
+        if 'vvv' in s_magic:
+            G_VERBOSE = True
+    else:
+        G_CONFIG['magic'] = ''
+
     fxxkstar = None
     try:
         fxxkstar = prepare()
