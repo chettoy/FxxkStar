@@ -65,7 +65,7 @@ G_CONFIG = {
 G_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Encoding": "gzip, deflate, br",
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:105.0) Gecko/20100101 Firefox/105.0",
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:106.0) Gecko/20100101 Firefox/106.0",
     "Connection": "keep-alive",
     "Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2",
 }
@@ -2130,7 +2130,7 @@ class WorkModule(AttachmentModule):
                         if i < common_count:
                             print("| ", answers[i]['content'], "\t",
                                   G_STRINGS['correct_answer'], correct[i]['content'])
-                        continue
+                            continue
                         if answer_count > i:
                             print(
                                 "| ", G_STRINGS['my_answer'], answers[i]['content'])
@@ -2796,7 +2796,8 @@ class FxxkStarHelper():
                 simu_list = map(lambda x: x - current_duration, simu_list)
                 eta += current_duration
                 simu_list = list(filter(lambda x: x > 0, simu_list))
-            eta += max(simu_list)
+            if len(simu_list):
+                eta += max(simu_list)
 
             return eta
 
@@ -3122,7 +3123,7 @@ if __name__ == "__main__":
 
         helper.choose_course_and_study()
 
-        if input(G_STRINGS['input_if_sync_video_progress']) == 'y':
+        if helper.video_to_watch and input(G_STRINGS['input_if_sync_video_progress']) == 'y':
             helper.sync_video_progress(5)
 
     except Exception as err:
