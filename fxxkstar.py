@@ -3,6 +3,7 @@
 # -*- coding:utf-8 -*-
 
 import base64
+import dataclasses
 import datetime
 import getpass
 import json
@@ -36,6 +37,11 @@ G_CONFIG = {
 
     # set language
     'language': 'zh-CN',
+
+    # chaoxing api path, no '/' at end
+    'cx_home_path': 'https://i.chaoxing.com',  # https://i.mooc.mooc.whu.edu.cn
+    'cx_mooc1_path': 'https://mooc1.chaoxing.com',  # https://mooc1.mooc.whu.edu.cn
+    'cx_mooc2_path': 'https://mooc2-ans.chaoxing.com',  # https://mooc2-ans.mooc.whu.edu.cn
 
     # save state to file
     # includes: login state, course list, course info, chapter list, chapter info, media info
@@ -359,7 +365,7 @@ class FxxkStar():
         else:
             if G_VERBOSE:
                 print("[INFO] 302 to " + new_url)
-        if new_url == "https://mooc1.chaoxing.com/antispiderShowVerify.ac":
+        if new_url.endswith("/antispiderShowVerify.ac"):
             raise MyError(0, G_STRINGS['antispider_verify'])
         return new_url
 
@@ -389,6 +395,9 @@ class FxxkStar():
                 self.agent.update_cookie(item.name, item.value)
             return rsp
         else:
+            if G_CONFIG['test']:
+                with open("temp/error_response.html", "w") as f:
+                    f.write(rsp.text)
             raise MyError(rsp.status_code,
                           G_STRINGS['error_response'] + ": url=" + url + "\n" + str(rsp.text))
 
@@ -504,17 +513,23 @@ class FxxkStar():
 
         def load_homepage_url():
             url0 = "https://i.chaoxing.com"
+            cx_homepage_path = G_CONFIG['cx_home_path']
             homepage_url = self.url_302(url0)
-            homepage_html = self.request_document(homepage_url).text
-            homepage_soup = BeautifulSoup(homepage_html, "lxml")
-            if homepage_soup.find("title").string.strip() != "个人空间":
-                raise MyError(0, G_STRINGS['error_response'] +
-                              ": url=" + homepage_url + "\n" + str(homepage_html))
-            if homepage_url.startswith("http://"):
-                if G_VERBOSE:
-                    print("Rewrite homepage_url to use HTTPS")
-                homepage_url = "https://" + homepage_url[7:]
-            assert homepage_url.startswith("https://i.chaoxing.com/base")
+
+            if not cx_homepage_path or cx_homepage_path == url0:
+                if homepage_url.startswith("http://"):
+                    if G_VERBOSE:
+                        print("Rewrite homepage_url to use HTTPS")
+                    homepage_url = "https://" + homepage_url[7:]
+                homepage_html = self.request_document(homepage_url).text
+                homepage_soup = BeautifulSoup(homepage_html, "lxml")
+                if homepage_soup.find("title").string.strip() != "个人空间":
+                    raise MyError(0, G_STRINGS['error_response'] +
+                                  ": url=" + homepage_url + "\n" + str(homepage_html))
+                assert homepage_url.startswith("https://i.chaoxing.com/base")
+            else:
+                homepage_url = homepage_url.replace(url0, cx_homepage_path)
+
             self.homepage_url = homepage_url
             return homepage_url
 
@@ -608,12 +623,12 @@ class FxxkStar():
         return self.account_info
 
     def load_course_list(self) -> None:
-        url = "https://mooc2-ans.chaoxing.com/visit/courses/list?v=" + \
+        url = G_CONFIG['cx_mooc2_path'] + "/visit/courses/list?v=" + \
             str(self.get_time_millis())
 
         course_html_text = self.request_xhr(url, {
             'Accept': 'text/html, */*; q=0.01',
-            'Referer': 'https://mooc2-ans.chaoxing.com/visit/interaction'
+            'Referer': G_CONFIG['cx_mooc2_path'] + '/visit/interaction'
         }).text
         course_HTML = etree.HTML(course_html_text)
 
@@ -661,14 +676,14 @@ class FxxkStar():
         except Exception as err:
             raise MyError(1, str(err) + "###" + course_HTML_text)
 
-        chapters_iframe_url = "https://mooc2-ans.chaoxing.com" + \
+        chapters_iframe_url = G_CONFIG['cx_mooc2_path'] + \
             "/mycourse/studentcourse?courseid={courseid}&clazzid={clazzid}&cpi={cpi}&ut=s".format(
                 **course_info)
         chapters_HTML_text = self.request_iframe(
             chapters_iframe_url, {"Referer": url_course_page}).text
         chapters_HTML = etree.HTML(chapters_HTML_text)
 
-        mooc1Domain = "https://mooc1.chaoxing.com"
+        mooc1Domain = G_CONFIG['cx_mooc1_path']
         enc_search = re.search(r"var enc\s*=\s*[\"'](.*?)[\"']\s*;",
                                chapters_HTML.xpath("/html/body/script[not(@src)]")[0].text)
         enc = enc_search.group(1)
@@ -810,10 +825,10 @@ class FxxkStar():
     def read_cardcount(self, chapter_page_url: str,
                        course_id: str, clazz_id: str, chapter_id: str, course_cpi: str) -> int:
         rsp_text = self.request_xhr(
-            url="https://mooc1.chaoxing.com/mycourse/studentstudyAjax",
+            url=G_CONFIG['cx_mooc1_path'] + "/mycourse/studentstudyAjax",
             header_update={
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'Origin': 'https://mooc1.chaoxing.com',
+                'Origin': G_CONFIG['cx_mooc1_path'],
                 'Referer': chapter_page_url,
             },
             data="courseId={0}&clazzid={1}&chapterId={2}&cpi={3}&verificationcode=&mooc2=1".format(
@@ -855,7 +870,7 @@ class FxxkStar():
             print()
 
         chapter_page_url = self.url_302(transfer_url, {
-            "Referer": "https://mooc2-ans.chaoxing.com/"
+            "Referer": G_CONFIG['cx_mooc2_path'] + "/"
         })
 
         if (G_VERBOSE):
@@ -887,7 +902,7 @@ class FxxkStar():
         card_list = []
         for num in range(card_count):
             try:
-                cards_url = "https://mooc1.chaoxing.com/knowledge/cards?clazzid={0}&courseid={1}&knowledgeid={2}&num={4}&ut=s&cpi={3}&v=20160407-1".format(
+                cards_url = G_CONFIG['cx_mooc1_path'] + "/knowledge/cards?clazzid={0}&courseid={1}&knowledgeid={2}&num={4}&ut=s&cpi={3}&v=20160407-1".format(
                     clazz_id, course_id, chapter_id, course_cpi, num)
                 cards_HTML_text = self.request_iframe(cards_url, {
                     "Referer": chapter_page_url
@@ -1312,7 +1327,8 @@ class LiveModule(AttachmentModule):
                          card_info, course_id, clazz_id, chapter_id)
 
         assert self.module_type == "live"
-        self.module_url = "https://mooc1.chaoxing.com/ananas/modules/live/index.html?v=2022-0324-1900"
+        self.module_url = G_CONFIG['cx_mooc1_path'] + \
+            "/ananas/modules/live/index.html?v=2022-0324-1900"
 
         self.live_set_enc = self.attachment_item['liveSetEnc']
         self.job_id = self.attachment_item['jobid']
@@ -1345,7 +1361,7 @@ class LiveModule(AttachmentModule):
         user_id = self.uid
 
         def setLiveANDCourseRelation() -> dict:
-            relation_url = "https://mooc1.chaoxing.com" + \
+            relation_url = G_CONFIG['cx_mooc1_path'] + \
                 f"/ananas/live/relation?courseid={course_id}&knowledgeid={chapter_id}&ut=s&jobid={job_id}&aid={a_id}"
             resp1 = fxxkstar.request_xhr(relation_url, {
                 "Accept": "application/json, text/javascript, */*; q=0.01",
@@ -1355,9 +1371,9 @@ class LiveModule(AttachmentModule):
                 print(resp1.text)
             return json.loads(resp1.text)
 
+        ut = 't' if 'teacherstudy' in chapter_page_url else 's'
         if vdoid:
-            ut = 't' if 'teacherstudy' in chapter_page_url else 's'
-            url = "https://mooc1.chaoxing.com/ananas/live/liveinfo?liveid={}&userid={}&clazzid={}&knowledgeid={}&courseid={}&jobid={}".format(
+            url = G_CONFIG['cx_mooc1_path'] + "/ananas/live/liveinfo?liveid={}&userid={}&clazzid={}&knowledgeid={}&courseid={}&jobid={}".format(
                 liveid, user_id, clazz_id, chapter_id, course_id, job_id)
             rsp = fxxkstar.request_xhr(url, {
                 "Accept": "application/json, text/javascript, */*; q=0.01",
@@ -1369,7 +1385,8 @@ class LiveModule(AttachmentModule):
             else:
                 raise MyError(1, "liveid=" + liveid + " ###" + rsp.text)
         else:
-            url = f"https://mooc1.chaoxing.com/api/work?api=1&workId=&jobid={job_id}&needRedirect=true&type=live&isphone=fasle"
+            url = G_CONFIG['cx_mooc1_path'] + \
+                f"/api/work?api=1&workId=&jobid={job_id}&needRedirect=true&type=live&isphone=fasle"
             url += f"&knowledgeid={chapter_id}&ut={ut}&clazzId={clazz_id}&clazzId={clazz_id}"
             url += f"&enc={enc}&utenc={ut_enc}&livesetenc={live_set_enc}&courseid={course_id}"
 
@@ -1437,10 +1454,10 @@ class DocumentModule(AttachmentModule):
     @staticmethod
     def _request_status(fxxkstar: FxxkStar, object_id: str) -> dict:
         assert len(object_id) > 1
-        status_url = "https://mooc1.chaoxing.com/ananas/status/{}?flag=normal&_dc={}".format(
+        status_url = G_CONFIG['cx_mooc1_path'] + "/ananas/status/{}?flag=normal&_dc={}".format(
             object_id, int(time.time() * 1000))
         status_rsp = fxxkstar.request_xhr(status_url, {
-            "Referer": "https://mooc1.chaoxing.com/ananas/modules/pdf/index.html?v=2022-0830-1135"
+            "Referer": G_CONFIG['cx_mooc1_path'] + "/ananas/modules/pdf/index.html?v=2022-0830-1135"
         }, method="GET")
         status_json = json.loads(status_rsp.text)
         if status_json['status'] == 'success':
@@ -1451,10 +1468,10 @@ class DocumentModule(AttachmentModule):
 
     @staticmethod
     def _misson_doucument(fxxkstar: FxxkStar, course_id, clazz_id, chapter_id, jobid, jtoken):
-        url = "https://mooc1.chaoxing.com/ananas/job/document?jobid={}&knowledgeid={}&courseid={}&clazzid={}&jtoken={}".format(
+        url = G_CONFIG['cx_mooc1_path'] + "/ananas/job/document?jobid={}&knowledgeid={}&courseid={}&clazzid={}&jtoken={}".format(
             jobid, chapter_id, course_id, clazz_id, jtoken)
         multimedia_rsp = fxxkstar.request_xhr(url, {
-            "Referer": "https://mooc1.chaoxing.com/ananas/modules/pdf/index.html?v=2022-0830-1135"
+            "Referer": G_CONFIG['cx_mooc1_path'] + "/ananas/modules/pdf/index.html?v=2022-0830-1135"
         }, method="GET")
         print("[INFO] mission_document")
         print(multimedia_rsp.text)
@@ -1481,10 +1498,10 @@ class VideoModule(AttachmentModule):
 
     @staticmethod
     def _request_status(fxxkstar: FxxkStar, object_id: str) -> dict:
-        status_url = "https://mooc1.chaoxing.com/ananas/status/{}?k=1606&flag=normal&_dc={}".format(
+        status_url = G_CONFIG['cx_mooc1_path'] + "/ananas/status/{}?k=1606&flag=normal&_dc={}".format(
             object_id, int(time.time() * 1000))
         status_rsp = fxxkstar.request_xhr(status_url, {
-            "Referer": "https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2022-0909-2029"
+            "Referer": G_CONFIG['cx_mooc1_path'] + "/ananas/modules/video/index.html?v=2022-0909-2029"
         }, method="GET")
         status_json = json.loads(status_rsp.text)
         if status_json['status'] == "success":
@@ -1586,7 +1603,7 @@ class WorkModule(AttachmentModule):
         if attachment_property.__contains__('schoolid'):
             workid = "{}-{}".format(attachment_property['schoolid'], workid)
 
-        src: str = "https://mooc1.chaoxing.com" + \
+        src: str = G_CONFIG['cx_mooc1_path'] + \
             f"/api/work?api=1&workId={workid}&jobid={jobid}&needRedirect=true"
 
         if defaults and defaults.__contains__('knowledgeid') and defaults['knowledgeid']:
@@ -1622,7 +1639,7 @@ class WorkModule(AttachmentModule):
             print("[INFO] module_work, src=" + src)
 
         headers = self.fxxkstar.get_agent().build_headers_based_on(self.fxxkstar.get_agent().headers_additional_iframe, {
-            "Referer": "https://mooc1.chaoxing.com/ananas/modules/work/index.html?v=2022-0714-1515&castscreen=0"
+            "Referer": G_CONFIG['cx_mooc1_path'] + "/ananas/modules/work/index.html?v=2022-0714-1515&castscreen=0"
         })
         src2 = self.fxxkstar.url_302(src, headers)
         src3 = self.fxxkstar.url_302(src2, headers)
@@ -1716,10 +1733,14 @@ class WorkModule(AttachmentModule):
                     question_type = i
                     break
             if question_type == -1:
-                if question_tag == "Cloze":
+                if question_tag in ["Cloze"]:
                     question_type = 14
-                elif question_tag == "Speaking":
+                elif question_tag in ["阅读理解"]:
+                    question_type = 15
+                elif question_tag in ["Speaking"]:
                     question_type = 18
+                elif question_tag in ["听力题"]:
+                    question_type = 19
 
             match_score = re.match(
                 "^\s*([\s\S]+?)\s*[\(（]\S+?分[\)）]$", question_title)
@@ -1745,7 +1766,8 @@ class WorkModule(AttachmentModule):
 
             else:
                 # parse my answer and correct answer
-                if question.type != 2:  # Fill in the blanks has multiple results
+                # Fill in the blanks has multiple results
+                if question.type in [0, 1, 3, 4, 5, 6, 7, 14, 18]:
                     answer_el = question_div.select(".Py_answer")[0]
                     answer_mark_el = answer_el.select("i.fr")
                     if answer_mark_el:
@@ -1930,6 +1952,110 @@ class WorkModule(AttachmentModule):
                     assert len(current_answers) <= 10
                     if current_answers:
                         question.selected = current_answers
+
+            elif question.type in [15, 19]:  # readCompreHension or Listening
+                if marked:
+                    answer_el = question_div.select(".Py_answer")[0]
+                    answer_result_els = answer_el.select(
+                        ".readCompreHensionItem .Py_answer.clearfix")
+                    assert len(answer_result_els) > 0
+
+                    correct_el = question_div.select(".Py_tk")
+                    correct_answer_els = []
+                    if correct_el:
+                        correct_el = correct_el[0]
+                        correct_answer_els = correct_el.select(".clearfix")
+
+                    assert len(correct_answer_els) == 0 or len(
+                        correct_answer_els) == len(answer_result_els)
+
+                    results: List[MarkResultItem] = []
+                    for i, answer_result_el in enumerate(answer_result_els):
+                        answer: str = answer_result_el.text.strip()
+                        if answer.startswith("正确答案："):
+                            answer = answer[len("正确答案："):].strip()
+                        elif answer.startswith("我的答案："):
+                            answer = answer[len("我的答案："):].strip()
+                        result = MarkResultItem(answer)
+
+                        if correct_answer_els:
+                            correct_answer_el = correct_answer_els[i]
+                            result.correct_answer = correct_answer_el.text.strip()
+
+                        answer_mark_el = answer_result_el.select("i.fr")
+                        if answer_mark_el:
+                            answer_mark_classlist: list = answer_mark_el[0].get(
+                                "class")
+                            if "dui" in answer_mark_classlist:
+                                result.is_correct = True
+                            elif "cuo" in answer_mark_classlist:
+                                result.is_correct = False
+                            else:
+                                assert False
+                        results.append(result)
+
+                    current_answers: List[OptionItem] = []
+                    correct_answers: List[OptionItem] = []
+                    for i, result in enumerate(results):
+                        option_item = OptionItem(index_list[i], result.answer)
+                        current_answers.append(option_item)
+                        if result.correct_answer:
+                            correct_answers.append(OptionItem(
+                                index_list[i], result.correct_answer))
+                        elif result.is_correct == True:
+                            correct_answers.append(result)
+                    if len(current_answers) > 0:
+                        question.selected = current_answers
+                    if len(correct_answers) > 0:
+                        question.correct = correct_answers
+
+                else:
+                    sub_questions: List[QuestionItem] = []
+
+                    answer_els = question_div.select(".readCompreHensionItem")
+                    assert len(answer_els) > 0
+                    for q_item_el in answer_els:
+                        child_question_title = q_item_el.select(
+                            ".clear .clearfix span")[0].text.strip()
+                        child_question_type = q_item_el.find(
+                            "input", attrs={"name": "readCompreHension-childType"}).get("value")
+                        child_question_id = q_item_el.find(
+                            "input", attrs={"name": "readCompreHension-childId"}).get("value")
+                        sub_question = QuestionItem(
+                            child_question_title, child_question_type)
+                        sub_question.question_id = child_question_id
+                        q_choice_els = q_item_el.select(
+                            ".choice li label.clearfix")
+                        sub_q_answers: List[OptionItem] = []
+                        for choice_el in q_choice_els:
+                            choice_input_el = choice_el.select("input")[0]
+                            choice_option = choice_input_el.get("value")
+                            choice_text_span = choice_el.select("span.fl")
+                            assert len(choice_text_span) == 2
+                            choice_option_text = choice_text_span[0].text.strip().strip(
+                                "、")
+                            assert choice_option_text == choice_option
+                            choice_con = choice_text_span[1].text.strip()
+                            sub_q_answers.append(
+                                OptionItem(choice_option, choice_con))
+                        sub_question.answers = sub_q_answers
+                        sub_questions.append(sub_question)
+
+                    super_question = {
+                        'topic': question.topic,
+                        'type': question.type,
+                        'children': sub_questions,
+                    }
+                    print("Unsupported question type {}!".format(question.type))
+                    if G_VERBOSE:
+                        class EnhancedJSONEncoder(json.JSONEncoder):
+                            def default(self, o):
+                                if dataclasses.is_dataclass(o):
+                                    return dataclasses.asdict(o)
+                                return super().default(o)
+                        print(json.dumps(super_question,
+                              cls=EnhancedJSONEncoder, ensure_ascii=False))
+                        print()
 
             elif question.type in [4, 5, 6, 7, 8, 18]:  # Short answer
                 content: str = None
@@ -2295,11 +2421,11 @@ class WorkModule(AttachmentModule):
 
     @staticmethod
     def _validate(fxxkstar: FxxkStar, course_id: str, clazz_id: str, cpi: str) -> bool:
-        ajax_url = "https://mooc1.chaoxing.com/work/validate?courseId={}&classId={}&cpi={}".format(
+        ajax_url = G_CONFIG['cx_mooc1_path'] + "/work/validate?courseId={}&classId={}&cpi={}".format(
             course_id, clazz_id, cpi)
         rsp_text = fxxkstar.request_xhr(ajax_url, {
             "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Referer": "https://mooc1.chaoxing.com/ananas/modules/work/index.html?v=2022-0714-1515&castscreen=0",
+            "Referer": G_CONFIG['cx_mooc1_path'] + "/ananas/modules/work/index.html?v=2022-0714-1515&castscreen=0",
         }).text
         # {"status":3}
         if G_VERBOSE:
@@ -2346,7 +2472,7 @@ class WorkModule(AttachmentModule):
         else:
             parms['pyFlag'] = "1"
 
-        ajax_url = "https://mooc1.chaoxing.com" + \
+        ajax_url = G_CONFIG['cx_mooc1_path'] + \
             f"/work/addStudentWorkNew?_classId={class_id}&courseid={course_id}&token={enc_work}&totalQuestionNum={total_question_num}"
         ajax_type = form1.get("method") or "post"
         ajax_data = urllib.parse.urlencode(parms)
@@ -2359,7 +2485,7 @@ class WorkModule(AttachmentModule):
 
         rsp_text = fxxkstar.request_xhr(ajax_url, {
             "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Referer": "https://mooc1.chaoxing.com/ananas/modules/work/index.html?v=2022-0714-1515&castscreen=0",
+            "Referer": G_CONFIG['cx_mooc1_path'] + "/ananas/modules/work/index.html?v=2022-0714-1515&castscreen=0",
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
         }, data=ajax_data, method=ajax_type).text
         # {"msg":"保存成功！","status":true}
@@ -2385,6 +2511,8 @@ class WorkModule(AttachmentModule):
                 index = topic_result['index']
                 result = topic_result['result']
                 topic = questions[index]['topic']
+                type_supported = questions[index]['type'] in [
+                    0, 1, 2, 3, 4, 5, 6, 7, 14, 18]
                 prev_answers = questions[index].get(key_correct_options, None)
 
                 def use_prev_answers():
@@ -2395,7 +2523,7 @@ class WorkModule(AttachmentModule):
                         questions[index][key_correct_options] = prev_answers
                     unprocessed_list.append(questions[index])
 
-                if result and len(result) > 0:
+                if result and len(result) > 0 and type_supported:
                     if len(result) > 1:
                         print(f"{topic} has {len(result)}results")
                         found_right_result = False
@@ -2541,7 +2669,7 @@ class video_report_action:
             video_mod.fxxkstar.get_agent().headers_additional_xhr, {
                 'Accept': '*/*',
                 'Content-Type': 'application/json',
-                'Referer': 'https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2022-0909-2029',
+                'Referer': G_CONFIG['cx_mooc1_path'] + '/ananas/modules/video/index.html?v=2022-0909-2029',
             })
         self.clazz_id: str = video_mod.clazz_id
         self.duration: int = video_mod.get_duration()
