@@ -1932,7 +1932,7 @@ class WorkModule(AttachmentModule):
                             correct_answers.append(OptionItem(
                                 index_list[i], result.correct_answer))
                         elif result.is_correct == True:
-                            correct_answers.append(result)
+                            correct_answers.append(option_item)
                     if len(current_answers) > 0:
                         question.selected = current_answers
                     if len(correct_answers) > 0:
