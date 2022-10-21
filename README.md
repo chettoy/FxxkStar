@@ -1,6 +1,7 @@
 # FxxkStar
 
 [![Python 3.10](https://img.shields.io/badge/python-v3.10-blue)](https://www.python.org/) [![License](https://img.shields.io/github/license/chettoy/FxxkStar)](https://raw.githubusercontent.com/chettoy/FxxkStar/main/LICENSE) ![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/chettoy/FxxkStar)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fchettoy%2FFxxkStar.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fchettoy%2FFxxkStar?ref=badge_shield)
 
 EN | [中文](#for-chinese-users-中文说明)
 
@@ -137,3 +138,6 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ```
 
+
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fchettoy%2FFxxkStar.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fchettoy%2FFxxkStar?ref=badge_large)
