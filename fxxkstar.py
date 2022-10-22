@@ -2952,9 +2952,14 @@ class FxxkStarHelper():
                 future.add_done_callback(on_done)
                 time.sleep(1.5)
 
+        # Dispatch the first task
         dispatch_task()
-        while len(future_list) > 0:
-            future_list[0].result()
+        # Wait for all processing to be completed
+        while self.video_to_watch:
+            while len(future_list) > 0:
+                future_list[0].result()
+            # Waiting for task creation
+            time.sleep(1)
 
         thread_pool.shutdown()
         print(G_STRINGS['sync_video_progress_ended'])
