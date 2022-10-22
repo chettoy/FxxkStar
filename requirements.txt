@@ -1,7 +1,7 @@
 beautifulsoup4==4.11.1
 Brotli==1.0.9
 cryptography==38.0.1
-fonttools==4.37.4
+fonttools==4.38.0
 lxml==4.9.1
 pycryptodome==3.15.0
 requests==2.28.1
