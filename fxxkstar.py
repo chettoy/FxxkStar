@@ -1510,6 +1510,10 @@ class VideoModule(AttachmentModule):
             if G_VERBOSE:
                 print("video", object_id, "response=waiting")
             return status_json
+        elif status_json['status'] == "failed":
+            print("[WARN] status_json={}".format(status_json))
+            print("object_id= " + object_id + " ###" + status_rsp.text)
+            return status_json
         else:
             if G_VERBOSE:
                 print("[ERROR] status_json={}".format(status_json))
@@ -2003,7 +2007,7 @@ class WorkModule(AttachmentModule):
                             correct_answers.append(OptionItem(
                                 index_list[i], result.correct_answer))
                         elif result.is_correct == True:
-                            correct_answers.append(result)
+                            correct_answers.append(option_item)
                     if len(current_answers) > 0:
                         question.selected = current_answers
                     if len(correct_answers) > 0:
